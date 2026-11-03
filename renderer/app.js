@@ -773,11 +773,39 @@ $('variantInstruction').addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); $('btnVariantGo').click(); }
 });
 $('btnCursor').onclick = async () => { await pv.copy($('final').value); await pv.openUrl('cursor://'); toast('Prompt copied. Cursor is opening if installed.', 5000); };
-$('btnReplay').onclick = () => {
+function replayHtml() {
   const title = escapeHtml(lastRunMeta?.project || 'VolleyPrompt replay');
   const snapshots = JSON.stringify(runSnapshots).replace(/</g, '\\u003c');
-  const html = `<!doctype html><meta charset="utf-8"><title>VolleyPrompt replay</title><style>body{background:#080611;color:#e8e2ff;font:16px system-ui;max-width:900px;margin:3em auto;padding:0 2em}pre{white-space:pre-wrap;background:#151020;padding:1em;border-radius:12px}button{padding:.7em 1em;margin:.3em}</style><h1>VolleyPrompt · ${title}</h1><div id="v"></div><button id="p">← Previous</button><button id="n">Next →</button><script>const s=${snapshots};let i=0;function r(){const x=s[i];document.querySelector('#v').innerHTML='<h2>Round '+x.round+' · Fitness '+(x.score??'—')+'/100 · '+x.verdict+'</h2><h3>Draft</h3><pre>'+x.draft.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))+'</pre><h3>Review</h3><pre>'+x.review.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))+'</pre>'}document.querySelector('#p').onclick=()=>{i=Math.max(0,i-1);r()};document.querySelector('#n').onclick=()=>{i=Math.min(s.length-1,i+1);r()};r();</script>`;
-  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([html], { type: 'text/html' })); a.download = 'volleyprompt-replay.html'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  return `<!doctype html><meta charset="utf-8"><title>VolleyPrompt replay</title><style>body{background:#080611;color:#e8e2ff;font:16px system-ui;max-width:900px;margin:3em auto;padding:0 2em}pre{white-space:pre-wrap;background:#151020;padding:1em;border-radius:12px}button{padding:.7em 1em;margin:.3em}</style><h1>VolleyPrompt · ${title}</h1><div id="v"></div><button id="p">← Previous</button><button id="n">Next →</button><script>const s=${snapshots};let i=0;function r(){const x=s[i];document.querySelector('#v').innerHTML='<h2>Round '+x.round+' · Fitness '+(x.score??'—')+'/100 · '+x.verdict+'</h2><h3>Draft</h3><pre>'+x.draft.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))+'</pre><h3>Review</h3><pre>'+x.review.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))+'</pre>'}document.querySelector('#p').onclick=()=>{i=Math.max(0,i-1);r()};document.querySelector('#n').onclick=()=>{i=Math.min(s.length-1,i+1);r()};r();</script>`;
+}
+let replayIdx = 0;
+function renderReplay() {
+  const snap = runSnapshots[replayIdx];
+  if (!snap) return;
+  $('replaySlider').value = String(replayIdx + 1);
+  $('replayDraftHead').textContent = `Draft · Round ${snap.round}`;
+  $('replayReviewHead').textContent = `Review · ${snap.score == null ? 'no score' : snap.score + '/100'} · ${snap.verdict || ''}`;
+  $('replayDraft').textContent = snap.draft || '';
+  $('replayReview').textContent = snap.review || '';
+  $('replayPrev').disabled = replayIdx === 0;
+  $('replayNext').disabled = replayIdx >= runSnapshots.length - 1;
+}
+$('btnReplay').onclick = () => {
+  if (!runSnapshots.length) { toast('No rounds recorded for this volley yet.', 6000); return; }
+  replayIdx = runSnapshots.length - 1;
+  $('replaySlider').max = String(runSnapshots.length);
+  const when = lastRunMeta?.when ? ` · ${lastRunMeta.when}` : '';
+  $('replayMeta').textContent = `${escapeHtml(lastRunMeta?.project || 'Untitled')} · ${runSnapshots.length} round${runSnapshots.length === 1 ? '' : 's'}${when} — step through each Draft ↔ Review exchange.`;
+  show('replayModal');
+  renderReplay();
+};
+$('replayClose').onclick = () => show('replayModal', false);
+$('replayModal').addEventListener('click', (e) => { if (e.target === $('replayModal')) show('replayModal', false); });
+$('replayPrev').onclick = () => { if (replayIdx > 0) { replayIdx--; renderReplay(); } };
+$('replayNext').onclick = () => { if (replayIdx < runSnapshots.length - 1) { replayIdx++; renderReplay(); } };
+$('replaySlider').oninput = () => { const i = Number($('replaySlider').value) - 1; if (i >= 0 && i < runSnapshots.length) { replayIdx = i; renderReplay(); } };
+$('replayDownload').onclick = () => {
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([replayHtml()], { type: 'text/html' })); a.download = 'volleyprompt-replay.html'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 };
 $('btnShareCard').onclick = () => {
   const canvas = document.createElement('canvas'); canvas.width = 1200; canvas.height = 630; const c = canvas.getContext('2d');
@@ -868,19 +896,20 @@ function renderAttachments() {
     const chip = document.createElement('div');
     chip.className = 'attachment-chip folder-chip' + (f.status === 'processing' ? ' processing' : '');
 
+    const isGithub = f.kind === 'github';
     const thumb = document.createElement('div');
     thumb.className = 'chip-thumb';
-    thumb.textContent = '📁';
+    thumb.textContent = isGithub ? '🐙' : '📁';
 
     const info = document.createElement('div');
     info.className = 'chip-info';
     const name = document.createElement('span');
-    name.className = 'chip-name'; name.title = f.name; name.textContent = f.name;
+    name.className = 'chip-name'; name.title = f.name; name.textContent = (isGithub ? 'GitHub · ' : '') + f.name;
     const size = document.createElement('span');
     size.className = 'chip-size';
     size.textContent = f.status === 'processing'
       ? `Reading… (${f.files.length}/${f.fileCount})`
-      : `✓ attached · included next run · ${f.fileCount} file${f.fileCount === 1 ? '' : 's'}${f.bytes ? ' · ' + formatSize(f.bytes) : ''}`;
+      : `✓ ${isGithub ? 'GitHub repo' : 'folder'} attached · included next run · ${f.fileCount} file${f.fileCount === 1 ? '' : 's'}${f.bytes ? ' · ' + formatSize(f.bytes) : ''}`;
     info.append(name, size);
 
     const removeBtn = document.createElement('button');
@@ -1451,7 +1480,7 @@ githubFetchBtn.onclick = async () => {
     const result = await pv.fetchGithubRepo(owner, repo);
     if (!result || !result.ok) throw new Error(result?.message || 'Could not fetch that repository.');
     if (existingIdx !== -1) { pendingFolders[existingIdx].aborted = true; pendingFolders.splice(existingIdx, 1); }
-    pendingFolders.push({ id: 'folder-' + (++attachmentIdSeq), kind: 'folder', name: result.repository || name, status: 'ready', aborted: false, files: result.files, fileCount: result.fileCount, bytes: result.bytes });
+    pendingFolders.push({ id: 'folder-' + (++attachmentIdSeq), kind: 'github', name: result.repository || name, status: 'ready', aborted: false, files: result.files, fileCount: result.fileCount, bytes: result.bytes });
     renderAttachments();
     const privacy = result.isPrivate ? 'private repository' : 'public repository';
     const keyCount = result.fileCount - 1;

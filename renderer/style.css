@@ -606,6 +606,11 @@ pre {
    ============================================================ */
 
 .modal .explorer-card { width: min(780px, 94vw); max-height: 86vh; display: flex; flex-direction: column; }
+.modal .replay-nav { align-items: center; gap: .5em; }
+.replay-body { display: flex; gap: 1em; min-height: 0; overflow: auto; }
+.replay-body .replay-pane { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; }
+.replay-body .replay-pane h3 { margin: .4em 0 .2em; font-size: .95em; }
+.replay-body pre { flex: 1; white-space: pre-wrap; word-break: break-word; background: var(--muted, #151020); padding: 1em; border-radius: 12px; margin: 0; font-size: .85em; line-height: 1.45; max-height: 52vh; overflow: auto; }
 .modal .github-card { width: min(580px, 92vw); }
 .github-card label { display: flex; flex-direction: column; gap: 4px; font-weight: 600; letter-spacing: 0.3px; }
 .github-card label small { color: var(--dim); font-weight: 400; letter-spacing: 0; }

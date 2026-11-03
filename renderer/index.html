@@ -114,7 +114,7 @@
         <span>Annotate</span>
       </button>
     </div>
-    <div class="result-tools"><button class="ghost" id="btnTestDrive">🧪 Test-drive</button><button class="ghost" id="btnVariant">↔ Variant</button><button class="ghost" id="btnReplay">⏯ Export replay</button><button class="ghost" id="btnShareCard">🖼 Share card</button><button class="ghost" id="btnCursor">↗ Copy + Cursor</button></div>
+    <div class="result-tools"><button class="ghost" id="btnTestDrive">🧪 Test-drive</button><button class="ghost" id="btnVariant">↔ Variant</button><button class="ghost" id="btnReplay">⏯ Replay</button><button class="ghost" id="btnShareCard">🖼 Share card</button><button class="ghost" id="btnCursor">↗ Copy + Cursor</button></div>
     <div class="row"><label>Outcome <small>help measure prompt usefulness</small><select id="outcomeTag"><option value="">Not rated</option><option value="used">Used as-is</option><option value="edited">Edited first</option><option value="failed">Didn't work</option><option value="unused">Didn't use</option></select></label></div>
     <div class="variant-box hidden" id="variantBox">
       <label>What should the variant change? <small>optional — leave blank for an independent alternative</small>
@@ -170,6 +170,23 @@
   <label>Repository URL or owner/repo<input id="githubRepoInput" type="text" autocomplete="url" placeholder="https://github.com/owner/repo"></label>
   <p class="hint github-status" id="githubStatus" aria-live="polite">Not connected — enter a repository to attach its context.</p>
   <div class="row"><button class="big" id="githubFetchBtn">Fetch and attach</button><button class="ghost" id="githubCancel">Cancel</button></div>
+</div></div>
+<div id="replayModal" class="modal hidden"><div class="card explorer-card">
+  <div class="explorer-head">
+    <h2>Volley replay</h2>
+    <button type="button" class="icon-btn" id="replayClose" title="Close" aria-label="Close">✕</button>
+  </div>
+  <p class="hint" id="replayMeta"></p>
+  <div class="row replay-nav">
+    <button class="ghost" id="replayPrev">← Previous</button>
+    <input id="replaySlider" type="range" min="1" max="1" value="1" style="flex:1">
+    <button class="ghost" id="replayNext">Next →</button>
+  </div>
+  <div class="replay-body">
+    <div class="replay-pane"><h3 id="replayDraftHead">Draft</h3><pre id="replayDraft"></pre></div>
+    <div class="replay-pane"><h3 id="replayReviewHead">Review</h3><pre id="replayReview"></pre></div>
+  </div>
+  <div class="row explorer-foot"><button class="ghost" id="replayDownload">⤓ Download HTML</button></div>
 </div></div>
 <div id="toasts" class="toasts"></div>
 <div id="settingsPage" class="settings-page-wrap hidden"><div class="settings-page">
