@@ -1216,12 +1216,12 @@ function refreshExplorerSummary() {
   $('ctxSelCount').textContent = String(files.length);
   $('ctxSelSize').textContent = formatSize(totalSize);
   let warn = '';
-  if (files.length > MAX_FOLDER_FILES) warn = `${files.length} files selected — the ${MAX_FOLDER_FILES} most relevant will be read.`;
-  else if (totalSize > MAX_FOLDER_TOTAL_BYTES) warn = `Selection is ${formatSize(totalSize)} — limit is ${formatSize(MAX_FOLDER_TOTAL_BYTES)}.`;
+  if (files.length > MAX_FOLDER_FILES) warn = `${files.length} files selected — full code reads the ${MAX_FOLDER_FILES} most relevant; brief mode includes the whole tree.`;
+  else if (totalSize > MAX_FOLDER_TOTAL_BYTES) warn = `${formatSize(totalSize)} selected — full code is trimmed to ${formatSize(MAX_FOLDER_TOTAL_BYTES)} of the most relevant files; tick "Attach as project brief" for the whole tree cheaply.`;
   const warnEl = $('ctxWarning');
   warnEl.textContent = warn;
   warnEl.classList.toggle('hidden', !warn);
-  $('ctxAttach').disabled = totalSize > MAX_FOLDER_TOTAL_BYTES || files.length === 0;
+  $('ctxAttach').disabled = files.length === 0;
 }
 
 function openContextExplorer(fileList) {
@@ -1273,25 +1273,35 @@ $('ctxAttach').onclick = async () => {
   const entries = Array.from(ctxState.selected, (p) => ({ path: p, file: ctxState.fileMap.get(p) })).filter((e) => e.file);
   if (!entries.length) { toast('Select at least one file.'); return; }
 
-  // Revalidate at attach time — selection could exceed limits even though each individual
-  // file passed the ignore/extension filter when the tree was built.
-  if (entries.length > MAX_FOLDER_FILES) {
-    const ranked = rankContextFiles(entries);
-    const kept = ranked.slice(0, MAX_FOLDER_FILES);
-    const droppedCount = entries.length - kept.length;
-    entries.length = 0; entries.push(...kept);
-    toast(`Large selection: reading the ${kept.length} most relevant files (${droppedCount} skipped — shallow/entry/config files ranked first).`, 10000);
+  // Nothing blocks here anymore — oversized selections are trimmed by relevance instead.
+  // Brief mode (tree + key files only) never gets trimmed; full-code mode is trimmed to
+  // the size budget, skipping rather than aborting.
+  const brief = !!($('ctxBrief') && $('ctxBrief').checked); // checked before the modal closes
+  let ranked = rankContextFiles(entries);
+  const monsters = ranked.filter((e) => e.file.size > MAX_FOLDER_FILE_BYTES);
+  if (monsters.length) {
+    ranked = ranked.filter((e) => e.file.size <= MAX_FOLDER_FILE_BYTES);
+    toast(`Skipped ${monsters.length} file${monsters.length === 1 ? '' : 's'} over ${Math.round(MAX_FOLDER_FILE_BYTES / 1024)}KB: ${monsters.slice(0, 5).map((e) => e.path).join(', ')}${monsters.length > 5 ? '…' : ''}.`, 10000);
+    if (!ranked.length) { toast('Nothing left to attach after skipping oversized files.'); return; }
   }
-  const totalSize = entries.reduce((s, e) => s + e.file.size, 0);
-  if (totalSize > MAX_FOLDER_TOTAL_BYTES) {
-    toast(`Selection is ${(totalSize / 1024 / 1024).toFixed(1)}MB — the limit is ${(MAX_FOLDER_TOTAL_BYTES / 1024 / 1024).toFixed(1)}MB.`, 10000); return;
+  if (!brief && ranked.length > MAX_FOLDER_FILES) {
+    const dropped = ranked.length - MAX_FOLDER_FILES;
+    ranked = ranked.slice(0, MAX_FOLDER_FILES);
+    toast(`Large selection: reading the ${MAX_FOLDER_FILES} most relevant files (${dropped} skipped — entry/config/source files ranked first).`, 10000);
   }
-  const tooBig = entries.filter((e) => e.file.size > MAX_FOLDER_FILE_BYTES);
-  if (tooBig.length) {
-    for (const t of tooBig) { const i = entries.findIndex((e) => e === t); if (i !== -1) entries.splice(i, 1); }
-    toast(`Skipped ${tooBig.length} file${tooBig.length === 1 ? '' : 's'} over ${Math.round(MAX_FOLDER_FILE_BYTES / 1024)}KB: ${tooBig.slice(0, 5).map((e) => e.path).join(', ')}${tooBig.length > 5 ? '…' : ''}.`, 10000);
-    if (!entries.length) { toast('Nothing left to attach after skipping oversized files.'); return; }
+  if (!brief) {
+    let total = 0;
+    const kept = [];
+    for (const e of ranked) {
+      if (total + e.file.size <= MAX_FOLDER_TOTAL_BYTES) { total += e.file.size; kept.push(e); }
+    }
+    if (kept.length < ranked.length) {
+      toast(`Full code would be ${formatSize(ranked.reduce((s, e) => s + e.file.size, 0))} — trimmed to the most relevant ${formatSize(total)} (${kept.length} files). Tick "Attach as project brief" to include the whole file tree cheaply instead.`, 12000);
+      ranked = kept;
+    }
   }
+  entries.length = 0; entries.push(...ranked);
+  if (!entries.length) { toast('Nothing left to attach.'); return; }
 
   // A folder with the same root name already attached: replace it rather than stacking a duplicate.
   const existingIdx = pendingFolders.findIndex((f) => f.name === rootName);
@@ -1303,7 +1313,6 @@ $('ctxAttach').onclick = async () => {
     pendingFolders.splice(existingIdx, 1);
   }
 
-  const brief = !!($('ctxBrief') && $('ctxBrief').checked); // checked before the modal closes
   closeContextExplorer();
   await readEligibleIntoFolder(entries, rootName, brief);
 };
