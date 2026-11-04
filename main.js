@@ -419,15 +419,16 @@ const IGNORED_DIR_NAMES = new Set(['.git', 'node_modules', 'dist', 'build', '.ne
 const IGNORED_FILE_NAMES = new Set(['.DS_Store', 'Thumbs.db', '.env', '.env.local', '.env.production']);
 const IGNORED_FILE_PATTERNS = [/^\.env(\..+)?$/i, /\.lock$/i, /^package-lock\.json$/i, /^yarn\.lock$/i, /^pnpm-lock\.yaml$/i, /\.map$/i, /\.min\.(js|css)$/i, /\.(pem|key|crt|pfx|p12)$/i];
 const FOLDER_ALLOWED_EXT = new Set(['.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs', '.py', '.html', '.css', '.scss', '.json', '.md', '.txt', '.yaml', '.yml', '.toml', '.xml', '.svg', '.sql', '.sh', '.bat', '.ps1', '.java', '.c', '.cpp', '.h', '.hpp', '.cs', '.go', '.rs', '.php', '.vue', '.svelte']);
-const MAX_FOLDER_FILES = 50;
-const MAX_FOLDER_TOTAL_BYTES = 2 * 1024 * 1024;
-const MAX_FOLDER_FILE_BYTES = 512 * 1024;
+const MAX_FOLDER_FILES = 400;
+const MAX_FOLDER_TOTAL_BYTES = 12 * 1024 * 1024;
+const MAX_FOLDER_FILE_BYTES = 768 * 1024;
 const MAX_FOLDERS = 8;
 
 function folderPathIsIgnored(relPath) {
   const segs = String(relPath).split('/');
   const base = segs[segs.length - 1];
-  if (segs.slice(0, -1).some((s) => IGNORED_DIR_NAMES.has(s))) return true;
+  if (segs.slice(0, -1).some((s) => IGNORED_DIR_NAMES.has(s) || s.startsWith('.'))) return true;
+  if (base.startsWith('.')) return true;
   if (IGNORED_FILE_NAMES.has(base)) return true;
   return IGNORED_FILE_PATTERNS.some((rx) => rx.test(base));
 }

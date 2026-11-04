@@ -971,9 +971,9 @@ const IGNORED_FILE_PATTERNS = [/^\.env(\..+)?$/i, /\.lock$/i, /^package-lock\.js
 // Allowlist, not a blocklist: images/binaries are simply never in this set, so they're
 // skipped without needing a separate "ignored binary extensions" list to maintain.
 const FOLDER_ALLOWED_EXT = new Set(['.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs', '.py', '.html', '.css', '.scss', '.json', '.md', '.txt', '.yaml', '.yml', '.toml', '.xml', '.svg', '.sql', '.sh', '.bat', '.ps1', '.java', '.c', '.cpp', '.h', '.hpp', '.cs', '.go', '.rs', '.php', '.vue', '.svelte']);
-const MAX_FOLDER_FILES = 50;
-const MAX_FOLDER_TOTAL_BYTES = 2 * 1024 * 1024;
-const MAX_FOLDER_FILE_BYTES = 512 * 1024;
+const MAX_FOLDER_FILES = 400;
+const MAX_FOLDER_TOTAL_BYTES = 12 * 1024 * 1024;
+const MAX_FOLDER_FILE_BYTES = 768 * 1024;
 const MAX_FOLDERS = 8;
 const FOLDER_READ_BATCH = 8;
 
@@ -983,9 +983,22 @@ let foldersProcessingCount = 0;
 function isFolderPathIgnored(relPath) {
   const segs = relPath.split('/');
   const base = segs[segs.length - 1];
-  if (segs.slice(0, -1).some((s) => IGNORED_DIR_NAMES.has(s))) return true;
+  // Any dot-directory (.github, .cache, …) and any dotfile is skipped.
+  if (segs.slice(0, -1).some((s) => IGNORED_DIR_NAMES.has(s) || s.startsWith('.'))) return true;
+  if (base.startsWith('.')) return true;
   if (IGNORED_FILE_NAMES.has(base)) return true;
   return IGNORED_FILE_PATTERNS.some((rx) => rx.test(base));
+}
+
+const CONTEXT_KEY_FILE_RX = /(^|\/)(readme[^/]*|package\.json|pyproject\.toml|cargo\.toml|go\.mod|requirements[^/]*|composer\.json|gemfile|makefile|dockerfile[^/]*|tsconfig[^/]*|vite\.config\.[^/]*|webpack\.config\.[^/]*|tailwind\.config\.[^/]*|main\.[a-z]+|index\.[a-z]+|app\.[a-z]+|server\.[a-z]+|routes?\.[a-z]+|config\.[a-z]+)$/i;
+const CONTEXT_EXT_RANK = { '.ts': 0, '.tsx': 0, '.js': 0, '.jsx': 0, '.mjs': 0, '.cjs': 0, '.py': 0, '.cs': 1, '.go': 1, '.rs': 1, '.java': 1, '.c': 1, '.cpp': 1, '.h': 1, '.hpp': 1, '.php': 1, '.vue': 1, '.svelte': 1, '.md': 2, '.html': 2, '.css': 2, '.scss': 2, '.sql': 2, '.sh': 2, '.bat': 2, '.ps1': 2, '.json': 2, '.yaml': 2, '.yml': 2, '.toml': 2, '.xml': 2, '.svg': 3, '.txt': 3 };
+function rankContextFiles(entries) {
+  return entries.map((e) => {
+    const path = e.path || e.name || '';
+    const depth = path.split('/').length;
+    const tier = CONTEXT_KEY_FILE_RX.test(path) ? 0 : (CONTEXT_EXT_RANK[extOf(path)] ?? 4);
+    return { e, score: tier * 1000 + depth * 10 + path.length / 100 };
+  }).sort((a, b) => a.score - b.score).map((x) => x.e);
 }
 
 function setProcessingLock(on) {
@@ -1203,12 +1216,12 @@ function refreshExplorerSummary() {
   $('ctxSelCount').textContent = String(files.length);
   $('ctxSelSize').textContent = formatSize(totalSize);
   let warn = '';
-  if (files.length > MAX_FOLDER_FILES) warn = `Too many files selected — ${files.length}/${MAX_FOLDER_FILES} max.`;
+  if (files.length > MAX_FOLDER_FILES) warn = `${files.length} files selected — the ${MAX_FOLDER_FILES} most relevant will be read.`;
   else if (totalSize > MAX_FOLDER_TOTAL_BYTES) warn = `Selection is ${formatSize(totalSize)} — limit is ${formatSize(MAX_FOLDER_TOTAL_BYTES)}.`;
   const warnEl = $('ctxWarning');
   warnEl.textContent = warn;
   warnEl.classList.toggle('hidden', !warn);
-  $('ctxAttach').disabled = !!warn || files.length === 0;
+  $('ctxAttach').disabled = totalSize > MAX_FOLDER_TOTAL_BYTES || files.length === 0;
 }
 
 function openContextExplorer(fileList) {
@@ -1263,7 +1276,11 @@ $('ctxAttach').onclick = async () => {
   // Revalidate at attach time — selection could exceed limits even though each individual
   // file passed the ignore/extension filter when the tree was built.
   if (entries.length > MAX_FOLDER_FILES) {
-    toast(`Selected ${entries.length} files — the limit is ${MAX_FOLDER_FILES}. Deselect some and try again.`, 10000); return;
+    const ranked = rankContextFiles(entries);
+    const kept = ranked.slice(0, MAX_FOLDER_FILES);
+    const droppedCount = entries.length - kept.length;
+    entries.length = 0; entries.push(...kept);
+    toast(`Large selection: reading the ${kept.length} most relevant files (${droppedCount} skipped — shallow/entry/config files ranked first).`, 10000);
   }
   const totalSize = entries.reduce((s, e) => s + e.file.size, 0);
   if (totalSize > MAX_FOLDER_TOTAL_BYTES) {
@@ -1271,7 +1288,9 @@ $('ctxAttach').onclick = async () => {
   }
   const tooBig = entries.filter((e) => e.file.size > MAX_FOLDER_FILE_BYTES);
   if (tooBig.length) {
-    toast(`Files over ${Math.round(MAX_FOLDER_FILE_BYTES / 1024)}KB: ${tooBig.map((e) => e.path).join(', ')}.`, 12000); return;
+    for (const t of tooBig) { const i = entries.findIndex((e) => e === t); if (i !== -1) entries.splice(i, 1); }
+    toast(`Skipped ${tooBig.length} file${tooBig.length === 1 ? '' : 's'} over ${Math.round(MAX_FOLDER_FILE_BYTES / 1024)}KB: ${tooBig.slice(0, 5).map((e) => e.path).join(', ')}${tooBig.length > 5 ? '…' : ''}.`, 10000);
+    if (!entries.length) { toast('Nothing left to attach after skipping oversized files.'); return; }
   }
 
   // A folder with the same root name already attached: replace it rather than stacking a duplicate.
