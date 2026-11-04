@@ -113,6 +113,7 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !themePa
   $('author').value = store.get('author', 'deepseek/deepseek-chat-v3.1');
   $('critic').value = store.get('critic', 'meta-llama/llama-3.3-70b-instruct');
   $('rounds').value = store.get('rounds', '3');
+  $('outputMode').value = store.get('outputMode', 'prompt') === 'deep-plan' ? 'deep-plan' : 'prompt';
   $('idea').value = store.get('idea', '');
   $('auto').checked = store.get('auto', '0') === '1';
   if (!(await pv.hasKey())) openModal(true);
@@ -367,6 +368,8 @@ async function composeCfgFromComposer() {
   if (!idea) { toast('Type your idea first 🙂'); $('idea').focus(); return null; }
   if (!(await pv.hasKey())) { openModal(true); return null; }
   const cfg = { idea, author: $('author').value.trim(), critic: $('critic').value.trim(), rounds: +$('rounds').value || 3, auto: $('auto').checked };
+  cfg.outputMode = $('outputMode').value === 'deep-plan' ? 'deep-plan' : 'prompt';
+  store.set('outputMode', cfg.outputMode);
   if (!cfg.author || !cfg.critic) { toast('Pick a model for both AIs.'); return null; }
   for (const k of ['author', 'critic', 'rounds', 'idea']) store.set(k, cfg[k]);
   store.set('auto', cfg.auto ? '1' : '0');
@@ -993,7 +996,7 @@ const FOLDER_ALLOWED_EXT = new Set(['.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs'
 const MAX_FOLDER_FILES = 50;
 const MAX_FOLDER_TOTAL_BYTES = 2 * 1024 * 1024;
 const MAX_FOLDER_FILE_BYTES = 512 * 1024;
-const MAX_FOLDERS = 3;
+const MAX_FOLDERS = 8;
 const FOLDER_READ_BATCH = 8;
 
 let pendingFolders = [];
@@ -1085,6 +1088,10 @@ async function readEligibleIntoFolder(entries, rootName, brief) {
 // ---- Phase 6: Project Context Explorer — tri-state folder tree, lazily rendered ----
 const CTX_RENDER_BATCH = 200;
 let ctxState = null; // { rootName, fileMap: Map<relPath,File>, tree, selected: Set<relPath> }
+const ctxExplorerQueue = []; // dropped folders waiting while the explorer is open
+function queueContextExplorer(files) {
+  if (ctxState) ctxExplorerQueue.push(files); else openContextExplorer(files);
+}
 
 function buildFolderTree(eligible) {
   const root = { name: '', type: 'dir', path: '', children: new Map() };
@@ -1229,13 +1236,15 @@ function refreshExplorerSummary() {
 function openContextExplorer(fileList) {
   const all = Array.from(fileList);
   if (!all.length) return;
-  const rootName = (all[0].webkitRelativePath || all[0].name).split('/')[0] || 'Project';
+  // Dropped-folder files carry their path in _vpRelPath (webkitRelativePath is read-only);
+  // the picker path still uses webkitRelativePath. First segment of either is the root.
+  const rootName = ((all[0]._vpRelPath || all[0].webkitRelativePath) || all[0].name).split('/')[0] || 'Project';
 
   // No file content is read here — only name/size/webkitRelativePath, same as Phase 5's
   // metadata-only pass. The ignore rules and extension allowlist are reused verbatim.
   const eligible = [];
   for (const file of all) {
-    const rel = file.webkitRelativePath || file.name;
+    const rel = file._vpRelPath || file.webkitRelativePath || file.name;
     const relInFolder = rel.split('/').slice(1).join('/');
     if (!relInFolder || isFolderPathIgnored(rel)) continue;
     if (!FOLDER_ALLOWED_EXT.has(extOf(file.name))) continue;
@@ -1261,7 +1270,11 @@ function openContextExplorer(fileList) {
   show('contextModal');
 }
 
-function closeContextExplorer() { show('contextModal', false); ctxState = null; }
+function closeContextExplorer() {
+  show('contextModal', false); ctxState = null;
+  // Multiple folders queued (e.g. a multi-folder drag-drop): open the next one.
+  if (ctxExplorerQueue.length) setTimeout(() => openContextExplorer(ctxExplorerQueue.shift()), 0);
+}
 $('ctxExplorerClose').onclick = closeContextExplorer;
 $('ctxCancel').onclick = closeContextExplorer; // Cancel means cancel: nothing in pendingFolders was touched while browsing.
 
@@ -1391,9 +1404,11 @@ if (attachBtn && fileInput) {
   if (folderBtn && folderInput) {
   folderBtn.addEventListener('click', () => folderInput.click());
   folderInput.addEventListener('change', () => {
-    const files = folderInput.files;
+    // FileList is a live view — clearing the input empties it, so snapshot first.
+    // (Clearing before snapshotting is exactly the "folder attach does nothing" bug.)
+    const files = Array.from(folderInput.files || []);
     folderInput.value = '';
-    if (files && files.length) openContextExplorer(files);
+    if (files.length) openContextExplorer(files);
   });
 }
 // ---- GitHub import: public repos need no token; private repos use a fine-grained token
@@ -1503,11 +1518,63 @@ if (editorWrapper) {
   editorWrapper.addEventListener('dragleave', (e) => {
     if (!editorWrapper.contains(e.relatedTarget)) editorWrapper.classList.remove('drop-active');
   });
-  editorWrapper.addEventListener('drop', (e) => {
+  editorWrapper.addEventListener('drop', async (e) => {
     e.preventDefault(); e.stopPropagation();
     editorWrapper.classList.remove('drop-active');
-    if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) addAttachmentFiles(e.dataTransfer.files);
+    const dropped = await collectDataTransferEntries(e.dataTransfer);
+    if (dropped.files.length) addAttachmentFiles(dropped.files);
+    for (const group of dropped.folderGroups) queueContextExplorer(group);
   });
+}
+
+// Dropped folders arrive as File objects with empty content; the only way to read them is
+// the File System entries API (webkitGetAsEntry), traversed recursively here. Loose files
+// still go through the normal attachment path; each dropped directory becomes one explorer
+// run (queued, so multiple folders dropped at once open one after another).
+async function collectDataTransferEntries(dt) {
+  const files = [], folderGroups = [];
+  if (!dt) return { files, folderGroups };
+  const entries = [];
+  for (const item of Array.from(dt.items || [])) {
+    if (item.kind !== 'file') continue;
+    const entry = item.webkitGetAsEntry && item.webkitGetAsEntry();
+    if (entry) entries.push(entry);
+    else { const f = item.getAsFile(); if (f) files.push(f); }
+  }
+  for (const entry of entries) {
+    if (entry.isFile) {
+      const f = await entryToFile(entry);
+      if (f) files.push(f);
+    } else if (entry.isDirectory) {
+      const group = [];
+      await walkEntry(entry, '', group);
+      if (group.length) folderGroups.push(group);
+    }
+  }
+  return { files, folderGroups };
+}
+
+function entryToFile(entry) {
+  return new Promise((resolve) => entry.file((f) => resolve(f), () => resolve(null)));
+}
+
+async function walkEntry(dirEntry, prefix, out) {
+  const reader = dirEntry.createReader();
+  // readEntries only returns a bounded batch per call — keep calling until it returns [].
+  let batch;
+  do {
+    batch = await new Promise((res) => reader.readEntries(res, () => res([])));
+    for (const e of batch) {
+      const rel = prefix ? `${prefix}/${e.name}` : e.name;
+      const full = `${dirEntry.name}/${rel}`;
+      if (e.isDirectory) {
+        if (!isFolderPathIgnored(full)) await walkEntry(e, rel, out);
+      } else if (e.isFile && !isFolderPathIgnored(full) && FOLDER_ALLOWED_EXT.has(extOf(e.name))) {
+        const f = await entryToFile(e);
+        if (f) { try { f._vpRelPath = full; } catch {} out.push(f); }
+      }
+    }
+  } while (batch.length);
 }
 $('idea').addEventListener('paste', (e) => {
   const items = e.clipboardData && e.clipboardData.items;

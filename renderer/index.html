@@ -73,7 +73,7 @@
       <span class="hint preset-help">Starters or saved setups: idea, models, rounds, and settings. Attachments and API keys aren’t included.</span>
     </div>
     <label class="check"><input type="checkbox" id="auto"> Hands-off mode (don't pause for my notes between rounds)</label>
-    <div class="composer-actions"><label class="rounds-inline" title="How many Writer ↔ Reviewer exchanges before it stops">Max rounds <input id="rounds" type="number" min="1" max="8" value="3"></label><button class="big" id="btnStart">Start the volley</button> <span class="hint">or press Ctrl+Enter</span></div>
+    <div class="composer-actions"><label class="rounds-inline" title="What the volley should produce: a build prompt, or a deep, code-grounded research & execution plan">Output <select id="outputMode"><option value="prompt">Prompt</option><option value="deep-plan">Code plan</option></select></label><label class="rounds-inline" title="How many Writer ↔ Reviewer exchanges before it stops">Max rounds <input id="rounds" type="number" min="1" max="8" value="3"></label><button class="big" id="btnStart">Start the volley</button> <span class="hint">or press Ctrl+Enter</span></div>
   </section>
 
   <section id="run" class="hidden">

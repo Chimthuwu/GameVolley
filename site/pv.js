@@ -29,6 +29,9 @@ VERDICT: APPROVE if there are no HIGH issues left, otherwise VERDICT: REVISE.`;
 
   const IMAGE_DESCRIPTION_SYSTEM = `You describe image attachments so a text-only reviewer can evaluate a prompt without seeing them. For each image, state: what it shows, and which product feature, UI detail, or UX moment it demonstrates. Be concrete and concise. Output ONLY the descriptions.`;
 
+  const DEEP_PLAN_WRITER_APPEND = `\n\nOUTPUT MODE — DEEP CODE PLAN: the attached project context is the primary material. Mine it thoroughly before proposing anything. The output must be a research-and-execution plan dense with concrete code references: cite real file paths, name the exact functions/classes/modules to change or build on, quote short excerpts of the existing code where they clarify the plan, and lay out an ordered execution plan (steps, which files each step touches, what 'done' for that step is). Call out risks and unknowns and tie each one to the specific code that raises it. Do not write a generic build prompt — every claim about the codebase must be grounded in the attached files.`;
+  const DEEP_PLAN_CRITIC_APPEND = `\n\n7. Grounding depth (deep code plan mode) — when output mode is a deep code plan, the prompt must read like research done on the attached code: real file paths, real symbol names, short quoted excerpts, and an ordered execution plan. Flag as HIGH when it makes vague generic claims the attached code could have answered concretely, invents symbols that do not exist in the attached files, or presents a plan without the files each step touches.`;
+
   // ---- key storage: browser localStorage only, sent straight to OpenRouter, never a server of ours ----
   // Trimmed on read: a key saved with a stray newline/space is rejected by OpenRouter at
   // request time even though it looks fine in the field.
@@ -319,7 +322,9 @@ VERDICT: APPROVE if there are no HIGH issues left, otherwise VERDICT: REVISE.`;
   // is configured in Settings, that one call is retried once on the fallback model.
   const fallbackModel = (cfg.fallback || '').trim();
   const rubric = String(cfg.rubric || '').trim();
-  const criticSystem = rubric ? `${CRITIC_SYSTEM}\n\nADDITIONAL USER REVIEW RUBRIC:\n${rubric}` : CRITIC_SYSTEM;
+  const deepPlan = cfg.outputMode === 'deep-plan';
+  const authorSystem = deepPlan ? `${AUTHOR_SYSTEM}${DEEP_PLAN_WRITER_APPEND}` : AUTHOR_SYSTEM;
+  const criticSystem = `${rubric ? `${CRITIC_SYSTEM}\n\nADDITIONAL USER REVIEW RUBRIC:\n${rubric}` : CRITIC_SYSTEM}${deepPlan ? DEEP_PLAN_CRITIC_APPEND : ''}`;
   const budgetLimit = Math.max(0, Number(cfg.budget) || 0);
   let actualCost = 0, usagePrompt = 0, usageCompletion = 0, budgetHit = false;
   const modelRates = (id) => {
@@ -388,7 +393,7 @@ VERDICT: APPROVE if there are no HIGH issues left, otherwise VERDICT: REVISE.`;
         send({ type: 'panel', role: 'author', r });
         const oldDraft = draft;
         if (r === 1) sentChars += firstAsk.length + attachTextLen;
-        draft = await callModel('Writer', r, AUTHOR_SYSTEM, history, (d) => send({ type: 'delta', role: 'author', text: d }));
+        draft = await callModel('Writer', r, authorSystem, history, (d) => send({ type: 'delta', role: 'author', text: d }));
         recvChars += draft.length;
         history.push({ role: 'assistant', content: draft });
         if (budgetHit) {
