@@ -129,7 +129,7 @@
     <div class="result-body">
     <p class="hint hidden" id="ideaRecap"></p>
     <p class="hint">You can edit this before copying.</p>
-    <div class="result-metrics"><strong id="fitnessScore">Fitness: —</strong><label>Round <input id="versionSlider" type="range" min="1" max="1" value="1" disabled><span id="versionLabel">—</span></label></div>
+    <div class="result-metrics"><strong id="fitnessScore">Fitness: —</strong><span id="modelInfo" style="marginLeft:1rem; font-size:0.8rem; color:var(--dim);">Model: —</span><label>Round <input id="versionSlider" type="range" min="1" max="1" value="1" disabled><span id="versionLabel">—</span></label></div>
     <div class="final-wrap">
       <textarea id="final" spellcheck="false"></textarea>
       <button type="button" class="final-annotate" id="btnAnnotate" title="Annotate — explain why each section of this prompt is there" aria-label="Annotate the prompt">
@@ -141,7 +141,7 @@
     <div class="row"><label>Outcome <small>help measure prompt usefulness</small><select id="outcomeTag"><option value="">Not rated</option><option value="used">Used as-is</option><option value="edited">Edited first</option><option value="failed">Didn't work</option><option value="unused">Didn't use</option></select></label></div>
     <div class="variant-box hidden" id="variantBox">
       <label>What should the variant change? <small>optional — leave blank for an independent alternative</small>
-        <textarea id="variantInstruction" rows="2" maxlength="800" placeholder="e.g. Make it mobile-first, drop the audio features, and assume I already have a design system."></textarea>
+        <textarea id="variantInstruction" rows="2" maxlength="10000" placeholder="e.g. Make it mobile-first, drop the audio features, and assume I already have a design system."></textarea>
       </label>
       <div class="row"><button class="ghost" id="btnVariantGo">Generate variant</button><button class="ghost" id="btnVariantCancel">Cancel</button></div>
     </div>

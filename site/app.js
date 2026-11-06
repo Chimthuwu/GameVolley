@@ -1842,21 +1842,23 @@ pv.onEvent(async (ev) => {
     case 'await-notes': show('notesBox'); $('notes').focus(); $('notesBox').scrollIntoView({ behavior: 'smooth' }); break;
     case 'notice': toast('ℹ ' + ev.message, 8000); break;
     case 'done':
-      streaming('author', false); streaming('critic', false); show('notesBox', false); show('reviewIssues', false);
-      if (ev.snapshots) runSnapshots = ev.snapshots;
-      await loadHistory();
-      const finishedItem = historyItems.find((x) => x.name === ev.historyName) || historyItems[0];
-      currentHistoryName = ev.historyName || finishedItem?.name || null;
-      if (lastRunMeta) { lastRunMeta.currentName = currentHistoryName; lastRunMeta.snapshots = ev.snapshots || runSnapshots; }
-      if (runAbandoned) break; // user already left via New Volley; don't yank them into a view they didn't ask for
-      if (!ev.final) { show('run', false); show('setup'); toast('Stopped.'); break; }
-      $('final').value = ev.final;
-      runSnapshots = ev.snapshots || runSnapshots;
-      if (ev.score != null) $('fitnessScore').textContent = `Fitness: ${ev.score}/100`;
-      $('outcomeTag').value = '';
-      showIdeaRecap(ev.idea, ev.file ? `Saved to ${ev.file}` : 'Stopped early — this is the latest draft.');
-      show('run', false); show('result');
-      break;
+          streaming('author', false); streaming('critic', false); show('notesBox', false); show('reviewIssues', false);
+          if (ev.snapshots) runSnapshots = ev.snapshots;
+          await loadHistory();
+          const finishedItem = historyItems.find((x) => x.name === ev.historyName) || historyItems[0];
+          currentHistoryName = ev.historyName || finishedItem?.name || null;
+          if (lastRunMeta) { lastRunMeta.currentName = currentHistoryName; lastRunMeta.snapshots = ev.snapshots || runSnapshots; }
+          if (runAbandoned) break; // user already left via New Volley; don't yank them into a view they didn't ask for
+          if (!ev.final) { show('run', false); show('setup'); toast('Stopped.'); break; }
+          $('final').value = ev.final;
+          runSnapshots = ev.snapshots || runSnapshots;
+          if (ev.score != null) $('fitnessScore').textContent = `Fitness: ${ev.score}/100`;
+          const modelText = lastRunMeta ? `Model: ${lastRunMeta.author} · ${lastRunMeta.critic}` : '';
+          $('modelInfo').textContent = modelText;
+          $('outcomeTag').value = '';
+          showIdeaRecap(ev.idea, ev.file ? `Saved to ${ev.file}` : 'Stopped early — this is the latest draft.');
+          show('run', false); show('result');
+          break;
     case 'error':
       streaming('author', false); streaming('critic', false); show('notesBox', false);
       if (runAbandoned) break;

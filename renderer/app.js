@@ -1663,6 +1663,71 @@ async function loadHistory() {
     }
   }
 }
+function handleHistoryContextMenu(e, item) {
+  e.preventDefault();
+  const menu = $('contextMenu');
+  const items = menu.querySelectorAll('.menu-item');
+  // Hide all menu items
+  items.forEach((item) => item.classList.add('hidden'));
+  // Show the clicked action
+  const action = e.target ? e.target.dataset.action : '';
+  if (action && items[action]) {
+    items[action].classList.remove('hidden');
+  }
+  // Position menu near cursor
+  menu.style.left = `${e.pageX}px`;
+  menu.style.top = `${e.pageY}px`;
+  menu.classList.remove('hidden');
+}
+
+function closeContextMenu() {
+  const menu = $('contextMenu');
+  menu.classList.add('hidden');
+}
+
+$('history').addEventListener('contextmenu', (e) => {
+  const item = e.target.closest('.hist-item');
+  if (!item) return;
+  handleHistoryContextMenu(e, item);
+});
+
+$('contextMenu').addEventListener('click', (e) => {
+  const action = e.target.dataset.action;
+  if (!action) return;
+  closeContextMenu();
+  if (action === 'rename') {
+    const item = document.querySelector('.hist-item.selected');
+    if (!item) return;
+    const newName = prompt('Rename this volley:', item.textContent.trim().replace('✂ ', '').replace(' · used', '').replace(' · edited', '').replace(' · failed', '').replace(' · unused', ''));
+    if (newName && newName.trim()) {
+      // TODO: implement rename
+      toast('Rename not yet implemented', 3000);
+    }
+  } else if (action === 'delete') {
+    if (confirm('Delete this volley?')) {
+      // TODO: implement delete
+      const item = document.querySelector('.hist-item.selected');
+      if (item) {
+        const name = item.dataset.id;
+        // Send IPC to delete the run
+        pv.stop();
+        // Remove from UI
+        item.remove();
+        toast('Volley deleted', 3000);
+      }
+    }
+  } else if (action === 'move') {
+    toast('Move to folder not yet implemented', 3000);
+  }
+});
+
+document.addEventListener('click', (e) => {
+  const menu = $('contextMenu');
+  if (menu && !menu.contains(e.target)) {
+    menu.classList.add('hidden');
+  }
+});
+
 function showIdeaRecap(idea, whenText) {
   // Any freshly shown result (new run or history load) starts expanded.
   $('result').classList.remove('collapsed'); $('resultCollapse').textContent = '▾';
@@ -1890,6 +1955,8 @@ pv.onEvent(async (ev) => {
       $('final').value = ev.final;
       runSnapshots = ev.snapshots || runSnapshots;
       if (ev.score != null) $('fitnessScore').textContent = `Fitness: ${ev.score}/100`;
+      const modelText = lastRunMeta ? `Model: ${lastRunMeta.author} · ${lastRunMeta.critic}` : '';
+      $('modelInfo').textContent = modelText;
       $('outcomeTag').value = '';
       showIdeaRecap(ev.idea, ev.file ? `Saved to ${ev.file}` : 'Stopped early — this is the latest draft.');
       show('run', false); show('result');

@@ -703,6 +703,7 @@ ipcMain.handle('run:start', async (_e, cfg) => {
       if (r > 1 && oldDraft.trim()) send({ type: 'diff', oldText: oldDraft, newText: draft });
 
       send({ type: 'panel', role: 'critic', r });
+      send({ type: 'metric', promptTokens: 0, completionTokens: 0, totalCost: 0, elapsedMs: 0 });  // Track reviewer start
       const criticText = reviewImageMode === 'describe'
         ? `Original idea:\n${idea}\n\nImage descriptions (written by the Writer, which can view the attachments):\n${imageDescription}\n\nPrompt to review:\n\n${draft}`
         : `Original idea:\n${idea}\n\nPrompt to review:\n\n${draft}`;
