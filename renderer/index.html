@@ -227,11 +227,23 @@
   </div>
 </div></div>
 <canvas id="bgCanvas"></canvas>
-<script src="app.js"></script>
-<!-- Context menu (right-click on sidebar session items) -->
+<!-- Context menu (right-click on sidebar session items / project folders) -->
 <div class="context-menu hidden" id="contextMenu">
-  <div class="menu-item" data-action="rename">Rename</div>
-  <div class="menu-item" data-action="delete">Delete</div>
-  <div class="menu-item" data-action="move">Move to folder...</div>
+  <div class="menu-item" data-action="rename" data-scope="run">Rename</div>
+  <div class="menu-item" data-action="move" data-scope="run">Move to folder…</div>
+  <div class="menu-item danger" data-action="delete" data-scope="run">Delete</div>
+  <div class="menu-item" data-action="rename-project" data-scope="project">Rename folder</div>
+  <div class="menu-item danger" data-action="delete-project" data-scope="project">Delete folder</div>
 </div>
+
+<!-- Prompt / confirm dialog. window.prompt() and window.confirm() are not available in
+     Electron renderers, so rename and delete use this instead. -->
+<div id="promptModal" class="modal hidden"><div class="card prompt-card">
+  <h2 id="promptTitle">Rename</h2>
+  <p class="hint" id="promptMessage"></p>
+  <div id="promptChoices" class="prompt-choices hidden"></div>
+  <label id="promptField"><span id="promptLabel">Name</span><input id="promptInput" type="text" maxlength="120" spellcheck="false"></label>
+  <div class="row"><button class="big" id="promptOk">Save</button><button class="ghost" id="promptCancel">Cancel</button></div>
+</div></div>
+<script src="app.js"></script>
 </body></html>

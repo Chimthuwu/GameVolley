@@ -6,6 +6,9 @@ contextBridge.exposeInMainWorld('pv', {
   start: inv('run:start'), sendNotes: inv('run:notes'), stop: inv('run:stop'), setRunModels: inv('run:models'),
   winMin: inv('window:minimize'), winMax: inv('window:maximize'), winClose: inv('window:close'),
   runs: inv('runs:list'), openRun: inv('runs:read'), updateRun: inv('runs:update'), utility: inv('utility:call'), keyUsage: inv('key:usage'),
+  // Sidebar history management: rename / delete / move a volley, and rename / delete a project group.
+  renameRun: inv('runs:rename'), deleteRun: inv('runs:delete'), moveRun: inv('runs:move'),
+  projects: inv('projects:list'), renameProject: inv('projects:rename'), deleteProject: inv('projects:delete'),
   githubTokenInfo: inv('github:token:has'), saveGithubToken: inv('github:token:set'), clearGithubToken: inv('github:token:clear'), fetchGithubRepo: inv('github:repo:fetch'),
   onEvent: (cb) => ipcRenderer.on('run:event', (_e, ev) => cb(ev)),
 });

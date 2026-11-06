@@ -1,7 +1,7 @@
 {
   "name": "volleyprompt",
   "productName": "VolleyPrompt",
-  "version": "1.1.2",
+  "version": "1.2.0",
   "description": "Two AIs volley your prompt back and forth until it's perfect.",
   "main": "main.js",
   "author": "Serge",
@@ -9,6 +9,9 @@
   "scripts": {
     "start": "electron .",
     "icons": "node scripts/make-icons.mjs",
+    "test": "node --test",
+    "test:e2e": "electron scripts/e2e/e2e-history.js",
+    "test:e2e:web": "electron scripts/e2e/e2e-history-web.js",
     "dist": "npm run icons && electron-builder --win --publish never",
     "site:dev": "wrangler pages dev site",
     "site:deploy": "wrangler pages deploy site --project-name=volley-prompt --branch=main --commit-dirty=true"
@@ -22,6 +25,7 @@
     "files": [
       "main.js",
       "preload.js",
+      "lib/**",
       "renderer/**",
       "build/icon.png"
     ],

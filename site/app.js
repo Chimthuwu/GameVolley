@@ -541,11 +541,17 @@ function refreshPresetSelect() {
   }
   sel.appendChild(savedGroup);
 }
-$('btnSavePreset').onclick = () => {
-  const name = (prompt('Name this saved setup:', '') || '').trim();
+$('btnSavePreset').onclick = async () => {
+  // window.prompt() throws in the Electron renderer, so the shared modal is used instead.
+  const entered = await askText({ title: 'Save preset', label: 'Preset name', placeholder: 'e.g. My MVP', okLabel: 'Save' });
+  if (entered === null) return;
+  const name = String(entered).trim();
   if (!name) return;
   const presets = loadPresets();
-  if (presets[name] && !confirm(`Overwrite preset "${name}"?`)) return;
+  if (presets[name]) {
+    const ok = await askConfirm({ title: 'Overwrite preset?', message: `"${name}" already exists. Replace it?`, okLabel: 'Overwrite' });
+    if (!ok) return;
+  }
   const s = loadSettings();
   presets[name] = {
     idea: $('idea').value,
@@ -1611,28 +1617,45 @@ async function loadHistory() {
   history.textContent = '';
   const groups = new Map();
   for (const r of historyItems) {
-    const group = r.meta?.project || 'Other volleys';
-    if (!groups.has(group)) groups.set(group, []);
-    groups.get(group).push(r);
+    // The project name is the folder; '' is the "Other volleys" fallback bucket.
+    const key = (r.meta && r.meta.project) || '';
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(r);
   }
-  for (const [group, items] of groups) {
-    const heading = document.createElement('div'); heading.className = 'history-project'; heading.textContent = group; history.appendChild(heading);
+  for (const [key, items] of groups) {
+    const heading = document.createElement('div');
+    heading.className = 'history-project';
+    heading.dataset.projectKey = key;
+    heading.textContent = key || 'Other volleys';
+    heading.draggable = true;
+    heading.addEventListener('dragstart', (e) => {
+      e.dataTransfer.setData('text/plain', 'folder:' + key);
+      e.dataTransfer.effectAllowed = 'move';
+      heading.classList.add('dragging');
+    });
+    heading.addEventListener('dragend', () => heading.classList.remove('dragging'));
+    history.appendChild(heading);
     for (const r of items) {
-    const stamp = r.name.replace('-final.md', '');
-    const el = document.createElement('div');
-    el.className = 'hist-item';
-    el.dataset.path = r.path;
-    el.dataset.id = r.name; // For context menu / drag-drop referencing
-    el.title = stamp; // r.title is user-controlled (the idea's first line) — never into innerHTML/attributes unescaped
-    el.textContent = (r.incomplete ? '✂ ' : '') + (r.title || stamp);
-    // Saved finals are shown in the result view; entries without one (e.g. desktop file
-    // paths surfaced through a different bridge) fall back to a toast instead of a dead click.
-    el.addEventListener('click', () => openHistoryItem(r.name));
-    if (r.meta?.outcome) el.textContent += ` · ${({ used: '✓', edited: '✎', failed: '!', unused: '–' })[r.meta.outcome] || ''}`;
-    history.appendChild(el);
+      const stamp = r.name.replace('-final.md', '');
+      const el = document.createElement('div');
+      el.className = 'hist-item';
+      el.dataset.path = r.path;
+      el.dataset.id = r.name; // For context menu / drag-drop referencing
+      el.title = stamp; // r.title is user-controlled (the idea's first line) — never into innerHTML/attributes unescaped
+      el.textContent = (r.incomplete ? '✂ ' : '') + (r.title || stamp);
+      el.draggable = true;
+      // Saved runs are on disk; clicking loads the final prompt (and the original idea) via pv.openRun.
+      el.addEventListener('click', () => openHistoryItem(r.name));
+      if (r.meta?.outcome) el.textContent += ` · ${({ used: '✓', edited: '✎', failed: '!', unused: '–' })[r.meta.outcome] || ''}`;
+      history.appendChild(el);
     }
   }
 }
+
+
+// Populate the sidebar on load — without this the web build showed no history until a run finished.
+loadHistory();
+
 function showIdeaRecap(idea, whenText) {
   // Any freshly shown result (new run or history load) starts expanded.
   $('result').classList.remove('collapsed'); $('resultCollapse').textContent = '▾';
@@ -1661,96 +1684,241 @@ function openHistoryItem(name) {
   showIdeaRecap(item.idea, note);
 }
 
-// Sidebar session management: right-click + drag-drop + folder reordering
-const contextMenu = document.getElementById('contextMenu');
-function showContextMenu(e) {
-  const item = e.currentTarget;
-  if (contextMenu) {
-    contextMenu.classList.remove('hidden');
-    contextMenu.style.left = e.pageX + 'px';
-    contextMenu.style.top = e.pageY + 'px';
-    contextMenu.dataset.targetItem = item.dataset.id || item.textContent.trim();
+// ---- Sidebar history: right-click menu, rename, delete, move -----------------
+// The history list is rebuilt from scratch by loadHistory() every time it refreshes,
+// so every listener here is delegated from the #history container. Binding at script
+// load found an empty list and never fired — that is why right-click did nothing.
+const historyEl = $('history');
+const contextMenu = $('contextMenu');
+let contextTarget = null; // { kind: 'run'|'project', name, title, key }
+
+function closeContextMenu() {
+  if (!contextMenu) return;
+  contextMenu.classList.add('hidden');
+  contextMenu.classList.remove('visible');
+  contextTarget = null;
+}
+
+function openContextMenu(e, target) {
+  if (!contextMenu) return;
+  contextTarget = target;
+  // Only offer the actions that apply to whatever was right-clicked.
+  contextMenu.querySelectorAll('.menu-item').forEach((el) => {
+    let show = el.dataset.scope === target.kind;
+    // "Other volleys" is the fallback bucket, not a real folder — nothing to delete.
+    if (show && el.dataset.action === 'delete-project' && !target.key) show = false;
+    el.classList.toggle('hidden', !show);
+  });
+  contextMenu.style.left = `${e.pageX}px`;
+  contextMenu.style.top = `${e.pageY}px`;
+  contextMenu.classList.remove('hidden');
+  contextMenu.classList.add('visible');
+}
+
+// Text prompt. `choices` are quick-pick buttons (used by "move to folder").
+function askText({ title, message = '', label = 'Name', value = '', placeholder = '', choices = null, okLabel = 'Save' }) {
+  return new Promise((resolve) => {
+    const modal = $('promptModal');
+    $('promptTitle').textContent = title;
+    const msg = $('promptMessage');
+    msg.textContent = message;
+    msg.classList.toggle('hidden', !message);
+    const input = $('promptInput');
+    input.value = value;
+    input.placeholder = placeholder;
+    $('promptLabel').textContent = label;
+    $('promptField').classList.remove('hidden');
+    const box = $('promptChoices');
+    box.textContent = '';
+    if (choices && choices.length) {
+      box.classList.remove('hidden');
+      for (const c of choices) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.textContent = c.label;
+        b.addEventListener('click', () => finish(c.value));
+        box.appendChild(b);
+      }
+    } else box.classList.add('hidden');
+    const ok = $('promptOk');
+    ok.textContent = okLabel;
+    const done = (v) => finish(v);
+    ok.onclick = () => done(input.value);
+    $('promptCancel').onclick = () => finish(null);
+    input.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); done(input.value); } };
+    modal.classList.remove('hidden');
+    setTimeout(() => { input.focus(); input.select(); }, 0);
+    function finish(v) {
+      modal.classList.add('hidden');
+      ok.onclick = null;
+      $('promptCancel').onclick = null;
+      input.onkeydown = null;
+      resolve(v);
+    }
+  });
+}
+
+// Yes/no prompt, reusing the same modal.
+function askConfirm({ title, message = '', okLabel = 'OK' }) {
+  return new Promise((resolve) => {
+    const modal = $('promptModal');
+    $('promptTitle').textContent = title;
+    const msg = $('promptMessage');
+    msg.textContent = message;
+    msg.classList.toggle('hidden', !message);
+    $('promptField').classList.add('hidden');
+    $('promptChoices').classList.add('hidden');
+    const ok = $('promptOk');
+    ok.textContent = okLabel;
+    const finish = (v) => {
+      modal.classList.add('hidden');
+      ok.onclick = null;
+      $('promptCancel').onclick = null;
+      resolve(v);
+    };
+    ok.onclick = () => finish(true);
+    $('promptCancel').onclick = () => finish(false);
+    modal.classList.remove('hidden');
+    setTimeout(() => ok.focus(), 0);
+  });
+}
+
+async function runHistoryAction(action, target) {
+  if (action === 'rename') {
+    const name = await askText({ title: 'Rename volley', label: 'Name', value: target.title, okLabel: 'Rename' });
+    if (name === null) return;
+    const clean = String(name).trim();
+    if (!clean) return;
+    const ok = await pv.renameRun(target.name, clean);
+    if (ok) { toast('Volley renamed.', 3000); await loadHistory(); }
+    else toast('Rename failed — could not write the new title.', 4000);
+  } else if (action === 'move') {
+    const list = await pv.projects();
+    const choices = (list || []).filter((p) => p.key).map((p) => ({ label: p.name, value: p.key }));
+    const dest = await askText({
+      title: 'Move volley to folder', label: 'Folder', value: target.key || '',
+      placeholder: 'Folder name', choices, okLabel: 'Move',
+    });
+    if (dest === null) return;
+    const ok = await pv.moveRun(target.name, String(dest).trim());
+    if (ok) { toast('Volley moved.', 3000); await loadHistory(); }
+    else toast('Move failed.', 4000);
+  } else if (action === 'delete') {
+    const yes = await askConfirm({
+      title: 'Delete volley?', okLabel: 'Delete',
+      message: `"${target.title}" and its saved prompt will be removed from this computer. This cannot be undone.`,
+    });
+    if (!yes) return;
+    const ok = await pv.deleteRun(target.name);
+    if (ok) {
+      if (currentHistoryName === target.name) currentHistoryName = null;
+      toast('Volley deleted.', 3000);
+      await loadHistory();
+    } else toast('Delete failed.', 4000);
+  } else if (action === 'rename-project') {
+    const name = await askText({ title: 'Rename folder', label: 'Folder name', value: target.label, okLabel: 'Rename' });
+    if (name === null) return;
+    const clean = String(name).trim();
+    if (!clean) return;
+    const n = await pv.renameProject(target.key, clean);
+    toast(n ? `Folder renamed (${n} volley${n === 1 ? '' : 's'}).` : 'No volleys in that folder.', 3500);
+    await loadHistory();
+  } else if (action === 'delete-project') {
+    const yes = await askConfirm({
+      title: 'Delete folder?', okLabel: 'Delete folder',
+      message: `The volleys in "${target.label}" move back to "Other volleys". The volleys themselves are kept.`,
+    });
+    if (!yes) return;
+    const n = await pv.deleteProject(target.key);
+    toast(n ? `Folder deleted (${n} volley${n === 1 ? '' : 's'} moved to Other volleys).` : 'Folder was already empty.', 4000);
+    await loadHistory();
   }
 }
-function hideContextMenu() {
-  if (contextMenu) {
-    contextMenu.classList.add('hidden');
-    delete contextMenu.dataset.targetItem;
-  }
-}
-document.addEventListener('click', (e) => {
-  if (contextMenu && !contextMenu.classList.contains('hidden') && !contextMenu.contains(e.target)) hideContextMenu();
-});
 
 if (contextMenu) {
   contextMenu.addEventListener('click', (e) => {
-    const action = e.target.closest('.menu-item')?.dataset.action;
-    if (!action) return;
-    const targetItem = contextMenu.dataset.targetItem;
-    if (!targetItem) return;
-    const itemEl = document.querySelector(`.hist-item[data-id="${targetItem}"]`);
-    if (!itemEl) return;
-    
-    if (action === 'rename') {
-      const currentName = itemEl.textContent.replace(/✂ /, '').trim();
-      const newName = prompt('Enter new name:', currentName);
-      if (newName !== null) itemEl.textContent = (itemEl.dataset.incomplete ? '✂ ' : '') + newName;
-    } else if (action === 'delete') {
-      if (confirm('Delete this session?')) itemEl.remove();
-    } else if (action === 'move') {
-      const groups = Array.from(document.querySelectorAll('.history-project')).map(g => g.textContent.trim());
-      const destination = prompt('Move to folder:', groups[0] || 'Other volleys');
-      if (destination) {
-        const newGroup = Array.from(document.querySelectorAll('.history-project')).find(g => g.textContent.trim() === destination);
-        if (newGroup) newGroup.appendChild(itemEl);
-      }
-    }
-    hideContextMenu();
+    const el = e.target.closest('.menu-item');
+    if (!el || !contextTarget) return;
+    const action = el.dataset.action;
+    const target = contextTarget;
+    closeContextMenu();
+    runHistoryAction(action, target);
+  });
+  // A click anywhere else dismisses the menu.
+  document.addEventListener('click', (e) => {
+    if (contextMenu && !contextMenu.contains(e.target)) closeContextMenu();
   });
 }
 
-document.querySelectorAll('.hist-item').forEach(el => {
-  el.addEventListener('contextmenu', (e) => { e.preventDefault(); showContextMenu(e); });
-  el.setAttribute('draggable', 'true');
-  el.addEventListener('dragstart', (e) => { e.dataTransfer.setData('text/plain', el.dataset.id || el.textContent.trim()); el.classList.add('dragging'); });
-  el.addEventListener('dragend', (e) => el.classList.remove('dragging'));
-  el.addEventListener('dragenter', (e) => { e.preventDefault(); el.classList.add('dragover'); });
-  el.addEventListener('dragleave', () => el.classList.remove('dragover'));
-  el.addEventListener('dragover', (e) => e.preventDefault());
-  el.addEventListener('drop', (e) => {
-    e.preventDefault(); el.classList.remove('dragover');
-    const id = e.dataTransfer.getData('text/plain');
-    const src = document.querySelector(`.hist-item[data-id="${id}"]`) || Array.from(document.querySelectorAll('.hist-item')).find(h => h.textContent.trim() === id);
-    if (src && src !== el) {
-      const group = el.closest('.history-project');
-      if (group) group.appendChild(src);
+if (historyEl) {
+  historyEl.addEventListener('contextmenu', (e) => {
+    const item = e.target.closest('.hist-item');
+    if (item) {
+      e.preventDefault();
+      const name = item.dataset.id;
+      const run = historyItems.find((x) => x.name === name);
+      openContextMenu(e, {
+        kind: 'run', name,
+        title: (run && run.title) || name.replace(/-final\.md$|-draft\.md$/, ''),
+        key: (run && run.meta && run.meta.project) || '',
+      });
+      return;
+    }
+    const group = e.target.closest('.history-project');
+    if (group) {
+      e.preventDefault();
+      const key = group.dataset.projectKey || '';
+      openContextMenu(e, { kind: 'project', key, label: group.textContent.trim() });
     }
   });
-});
 
-document.querySelectorAll('.history-project').forEach(el => {
-  el.setAttribute('draggable', 'true');
-  el.addEventListener('dragstart', (e) => { e.dataTransfer.setData('text/plain', 'folder:' + el.textContent.trim()); el.classList.add('dragging'); });
-  el.addEventListener('dragend', () => el.classList.remove('dragging'));
-  el.addEventListener('dragenter', () => el.classList.add('dragover'));
-  el.addEventListener('dragleave', () => el.classList.remove('dragover'));
-  el.addEventListener('dragover', (e) => e.preventDefault());
-  el.addEventListener('drop', (e) => {
-    e.preventDefault(); el.classList.remove('dragover');
-    const id = e.dataTransfer.getData('text/plain');
-    if (id.startsWith('folder:')) {
-      const targetName = id.replace('folder:', '');
-      if (targetName !== el.textContent.trim()) {
-        const srcFolder = Array.from(document.querySelectorAll('.history-project')).find(f => f.textContent.trim() === targetName);
-        if (srcFolder) {
-          Array.from(srcFolder.children).forEach(child => {
-            if (child.classList.contains('hist-item')) el.appendChild(child);
-          });
-        }
-      }
-    }
+  // Drag a volley into a folder to move it. Delegated for the same reason as above.
+  historyEl.addEventListener('dragstart', (e) => {
+    const item = e.target.closest('.hist-item');
+    if (!item) return;
+    e.dataTransfer.setData('text/plain', item.dataset.id || '');
+    e.dataTransfer.effectAllowed = 'move';
+    item.classList.add('dragging');
   });
-});
+  historyEl.addEventListener('dragend', (e) => {
+    const item = e.target.closest('.hist-item');
+    if (item) item.classList.remove('dragging');
+  });
+  historyEl.addEventListener('dragover', (e) => {
+    const group = e.target.closest('.history-project');
+    if (!group) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    group.classList.add('dragover');
+  });
+  historyEl.addEventListener('dragleave', (e) => {
+    const group = e.target.closest('.history-project');
+    if (group && !group.contains(e.relatedTarget)) group.classList.remove('dragover');
+  });
+  historyEl.addEventListener('drop', async (e) => {
+    const group = e.target.closest('.history-project');
+    if (!group) return;
+    e.preventDefault();
+    group.classList.remove('dragover');
+    const payload = e.dataTransfer.getData('text/plain') || '';
+    const dest = group.dataset.projectKey || '';
+    if (payload.startsWith('folder:')) {
+      // Dropping one folder onto another merges its volleys into the target.
+      const src = payload.slice(7);
+      if (src === dest) return;
+      const list = await pv.projects();
+      const match = (list || []).find((p) => p.key === src);
+      const moved = await pv.renameProject(src, dest || 'Other volleys');
+      toast(moved ? `Moved ${moved} volley${moved === 1 ? '' : 's'} into "${dest || 'Other volleys'}".` : 'Nothing to move.', 3500);
+      await loadHistory();
+      return;
+    }
+    if (!payload) return;
+    const ok = await pv.moveRun(payload, dest);
+    if (ok) { toast('Volley moved.', 2500); await loadHistory(); }
+  });
+}
+
 
 // animated background
 const c = $('bgCanvas'); const ctx = c.getContext('2d');

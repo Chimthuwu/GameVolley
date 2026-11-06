@@ -264,6 +264,73 @@ VERDICT: APPROVE if there are no HIGH issues left, otherwise VERDICT: REVISE.`;
     try { localStorage.setItem(HISTORY_STORAGE, JSON.stringify(items.slice(0, MAX_HISTORY))); } catch {}
   }
 
+  // ---- history mutations: rename / delete / move, mirroring lib/runs-store.js for the web build ----
+  const MAX_TITLE = 120;
+  const MAX_PROJECT = 80;
+  const UNGROUPED = 'Other volleys';
+  function saveHistoryList(items) {
+    try { localStorage.setItem(HISTORY_STORAGE, JSON.stringify(items.slice(0, MAX_HISTORY))); return true; } catch { return false; }
+  }
+  function renameRun(name, title) {
+    if (typeof name !== 'string' || typeof title !== 'string') return false;
+    const clean = title.replace(/\s+/g, ' ').trim().slice(0, MAX_TITLE);
+    if (!clean) return false;
+    const items = loadHistoryList();
+    const item = items.find((x) => x.name === name);
+    if (!item) return false;
+    item.title = clean;
+    return saveHistoryList(items);
+  }
+  function deleteRun(name) {
+    if (typeof name !== 'string') return false;
+    const items = loadHistoryList();
+    const next = items.filter((x) => x.name !== name);
+    if (next.length === items.length) return false;
+    return saveHistoryList(next);
+  }
+  function moveRun(name, project) {
+    if (typeof name !== 'string' || typeof project !== 'string') return false;
+    const items = loadHistoryList();
+    const item = items.find((x) => x.name === name);
+    if (!item) return false;
+    item.meta = { ...(item.meta || {}), project: project.replace(/\s+/g, ' ').trim().slice(0, MAX_PROJECT) };
+    return saveHistoryList(items);
+  }
+  function listProjects() {
+    const counts = new Map();
+    for (const item of loadHistoryList()) {
+      const key = (item.meta && item.meta.project) || '';
+      counts.set(key, (counts.get(key) || 0) + 1);
+    }
+    return [...counts.entries()].map(([key, count]) => ({ name: key || UNGROUPED, key, count }));
+  }
+  function renameProject(from, to) {
+    if (typeof from !== 'string' || typeof to !== 'string') return 0;
+    const clean = to.replace(/\s+/g, ' ').trim().slice(0, MAX_PROJECT);
+    if (!clean) return 0;
+    const items = loadHistoryList();
+    let moved = 0;
+    for (const item of items) {
+      if (((item.meta && item.meta.project) || '') !== from) continue;
+      item.meta = { ...(item.meta || {}), project: clean };
+      moved++;
+    }
+    if (moved) saveHistoryList(items);
+    return moved;
+  }
+  function deleteProject(name) {
+    if (typeof name !== 'string' || !name) return 0;
+    const items = loadHistoryList();
+    let moved = 0;
+    for (const item of items) {
+      if (((item.meta && item.meta.project) || '') !== name) continue;
+      item.meta = { ...(item.meta || {}), project: '' };
+      moved++;
+    }
+    if (moved) saveHistoryList(items);
+    return moved;
+  }
+
   // ---- run orchestration: same round loop, notes-wait, and Stop-vs-Finish-here distinction as main.js ----
   let current = null;
   let eventListener = null;
@@ -581,6 +648,12 @@ VERDICT: APPROVE if there are no HIGH issues left, otherwise VERDICT: REVISE.`;
       if (!res.ok) return { ok: false, message: friendly(res.status) };
       const data = await res.json(); return { ok: true, data: data.data || data };
     },
+    renameRun: async (name, title) => renameRun(name, title),
+    deleteRun: async (name) => deleteRun(name),
+    moveRun: async (name, project) => moveRun(name, project),
+    projects: async () => listProjects(),
+    renameProject: async (from, to) => renameProject(from, to),
+    deleteProject: async (name) => deleteProject(name),
     updateRun: async (name, patch) => {
       const items = loadHistoryList(), item = items.find((x) => x.name === name);
       if (!item) return false;

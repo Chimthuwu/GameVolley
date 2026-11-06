@@ -830,6 +830,20 @@ a:hover { text-decoration: underline; text-shadow: 0 0 10px rgba(0, 240, 255, 0.
 .menu-item { padding:7px 14px; font-size:12px; color:var(--txt); cursor:pointer; white-space:nowrap; }
 .menu-item:hover { background:var(--panel-hi); color:var(--neon-cyan); }
 .menu-item.danger:hover { background:rgba(255,60,80,0.12); color:#ff3c50; }
+
+/* Prompt / confirm modal (rename, move, delete) */
+.modal .prompt-card { width: min(460px, 92vw); }
+.prompt-card h2 { margin: 0 0 6px; font-size: 1.05em; }
+.prompt-card .hint { margin: 2px 0 12px; }
+.prompt-card label { display: flex; flex-direction: column; gap: 5px; font-weight: 600; letter-spacing: 0.3px; }
+.prompt-card label span { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--dim); }
+.prompt-card input { margin: 0; }
+.prompt-choices { display: flex; flex-direction: column; gap: 4px; max-height: 240px; overflow-y: auto; margin: 4px 0 12px; }
+.prompt-choices button {
+  text-align: left; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line);
+  background: transparent; color: var(--txt); font-size: 12.5px; cursor: pointer;
+}
+.prompt-choices button:hover { border-color: var(--neon-cyan); color: var(--neon-cyan); }
 main { flex:1; overflow:auto; padding:24px; max-width:none; margin:0; display:flex; flex-direction:column; justify-content:center; justify-content:safe center; }
 
 #bgCanvas { position:fixed; inset:0; z-index:-2; pointer-events:none; }

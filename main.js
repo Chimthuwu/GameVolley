@@ -1,6 +1,7 @@
 const { app, BrowserWindow, ipcMain, safeStorage, shell, clipboard } = require('electron');
 const fs = require('fs');
 const path = require('path');
+const runsStore = require('./lib/runs-store.js');
 
 const API = 'https://openrouter.ai/api/v1';
 const keyFile = () => path.join(app.getPath('userData'), 'key.bin');
@@ -268,60 +269,31 @@ ipcMain.handle('window:maximize', () => { if (win.isMaximized()) win.unmaximize(
 ipcMain.handle('window:close', () => win.close());
 ipcMain.handle('runs:list', () => {
   fs.mkdirSync(runsDir(), { recursive: true });
-  const items = fs.readdirSync(runsDir()).filter((f) => f.endsWith('-final.md') || f.endsWith('-draft.md')).map((f) => {
-    const isDraft = f.endsWith('-draft.md');
-    // -draft.md = a Stop with partial text: still listed in history, flagged as incomplete.
-    const stamp = f.slice(0, -(isDraft ? '-draft.md' : '-final.md').length);
-    let title = '';
-    try { title = fs.readFileSync(path.join(runsDir(), `${stamp}.title`), 'utf8').trim(); } catch {}
-    let meta = {};
-    try { meta = JSON.parse(fs.readFileSync(path.join(runsDir(), `${stamp}.meta.json`), 'utf8')); } catch {}
-    return { name: f, title, path: path.join(runsDir(), f), incomplete: isDraft, meta };
-  }).sort((a,b)=>b.name.localeCompare(a.name));
-  return items;
+  return runsStore.listRuns(runsDir());
 });
+// The project groups shown in the sidebar, with member counts.
+ipcMain.handle('projects:list', () => {
+  fs.mkdirSync(runsDir(), { recursive: true });
+  return runsStore.listProjects(runsDir());
+});
+// Rename a single volley. The filename stamp is the run's identity and its sort
+// order, so only the display title changes.
+ipcMain.handle('runs:rename', (_e, name, title) => runsStore.renameRun(runsDir(), name, title));
+// Delete a volley and every sidecar belonging to it.
+ipcMain.handle('runs:delete', (_e, name) => runsStore.deleteRun(runsDir(), name));
+// Move a volley into a project group ('' = ungrouped / "Other volleys").
+ipcMain.handle('runs:move', (_e, name, project) => runsStore.moveRun(runsDir(), name, project));
+// Rename a project group - every member volley follows it.
+ipcMain.handle('projects:rename', (_e, from, to) => runsStore.renameProject(runsDir(), from, to));
+// "Delete" a project by ungrouping its volleys; the volleys themselves are kept.
+ipcMain.handle('projects:delete', (_e, name) => runsStore.deleteProject(runsDir(), name));
 ipcMain.handle('url:open', (_e, u) => {
   if (typeof u === 'string' && (/^https:\/\//i.test(u) || /^(cursor|claude|vscode):\/\//i.test(u))) shell.openExternal(u);
 });
 // Loads a saved run's final prompt (plus the original idea) so the sidebar history is
 // clickable, not just a list of titles.
-ipcMain.handle('runs:update', (_e, name, patch) => {
-  const isDraft = typeof name === 'string' && name.endsWith('-draft.md');
-  if (typeof name !== 'string' || (!name.endsWith('-final.md') && !isDraft) || name.includes('/') || name.includes('\\') || name.includes('..')) return false;
-  const stamp = name.slice(0, -(isDraft ? '-draft.md' : '-final.md').length);
-  const safe = {};
-  if (patch && ['used', 'edited', 'failed', 'unused'].includes(patch.outcome)) safe.outcome = patch.outcome;
-  if (patch && typeof patch.project === 'string') safe.project = patch.project.slice(0, 80);
-  const file = path.join(runsDir(), `${stamp}.meta.json`);
-  let meta = {};
-  try { meta = JSON.parse(fs.readFileSync(file, 'utf8')); } catch {}
-  Object.assign(meta, safe);
-  try { fs.writeFileSync(file, JSON.stringify(meta, null, 2)); return true; } catch { return false; }
-});
-ipcMain.handle('runs:read', (_e, name) => {
-  // Only exact expected file names of the expected shape, resolved inside runsDir().
-  const isDraft = typeof name === 'string' && name.endsWith('-draft.md');
-  if (typeof name !== 'string' || (!name.endsWith('-final.md') && !isDraft) || name.includes('/') || name.includes('\\') || name.includes('..')) return null;
-  let final = '';
-  try { final = fs.readFileSync(path.join(runsDir(), name), 'utf8'); } catch { return null; }
-  const stamp = name.slice(0, -(isDraft ? '-draft.md' : '-final.md').length);
-  let idea = '';
-  try {
-    idea = fs.readFileSync(path.join(runsDir(), `${stamp}.idea`), 'utf8');
-  } catch {
-    // Runs saved before idea sidecars existed logged the idea in the run log's `## Idea` section.
-    try {
-      const logTxt = fs.readFileSync(path.join(runsDir(), `${stamp}.md`), 'utf8');
-      const m = logTxt.match(/^## Idea\n\n([\s\S]*?)(?=\n## |$)/m);
-      if (m) idea = m[1];
-    } catch {}
-  }
-  let meta = {};
-  try { meta = JSON.parse(fs.readFileSync(path.join(runsDir(), `${stamp}.meta.json`), 'utf8')); } catch {}
-  let log = '';
-  try { log = fs.readFileSync(path.join(runsDir(), `${stamp}.md`), 'utf8'); } catch {}
-  return { final, idea, meta, log };
-});
+ipcMain.handle('runs:update', (_e, name, patch) => runsStore.updateRun(runsDir(), name, patch));
+ipcMain.handle('runs:read', (_e, name) => runsStore.readRun(runsDir(), name));
 
 const IDLE_MS = 30000; // no bytes for this long means the stream stalled
 // Vision requests legitimately take far longer than text before the first byte (multi-MB
