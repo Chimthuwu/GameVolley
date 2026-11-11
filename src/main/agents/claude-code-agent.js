@@ -21,8 +21,10 @@ class ClaudeCodeAgent extends CodingAgentBase {
     return 'Install: npm i -g @anthropic-ai/claude-code  (uses your Claude subscription). Run "claude login" in a terminal first.';
   }
 
-  buildArgs({ prompt, system = '', model = null }) {
-    const args = ['-p', prompt];
+  buildArgs({ prompt, system = '', model = null, useStdin = false }) {
+    // `claude -p` reads the prompt from stdin when piped, so on Windows shim
+    // launches the untrusted prompt travels via stdin, never as an argument.
+    const args = useStdin ? ['-p'] : ['-p', prompt];
     if (model) args.push('--model', String(model));
     if (system) args.push('--append-system-prompt', system);
     args.push('--permission-mode', 'bypassPermissions');

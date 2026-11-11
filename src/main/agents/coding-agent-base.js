@@ -10,7 +10,7 @@
 // rather than pretending the task ran. No fake success.
 
 const { resolveExecutable, probe } = require('./executable-resolver.js');
-const { streamProcess } = require('./agent-process.js');
+const { streamProcess, isWindowsShim: shimCheck } = require('./agent-process.js');
 
 class CodingAgentBase {
   constructor(meta) {
@@ -61,7 +61,15 @@ class CodingAgentBase {
       onEvent({ type: 'error', agent: this.id, message: err.message });
       throw err;
     }
-    const args = this.buildArgs({ prompt, system, model });
+    // On Windows, npm CLIs are .cmd/.bat shims that must launch through cmd.exe.
+    // UNTRUSTED text (the task prompt) then must NEVER travel through a command
+    // string — route it via stdin and keep only flags/models/paths in the args.
+    const viaStdin = shimCheck(d.binary);
+    const args = this.buildArgs({ prompt: viaStdin ? null : prompt, system, model, useStdin: viaStdin });
+    // Agents that merged system text into the prompt (e.g. gemini) need it in stdin too.
+    const stdinText = viaStdin
+      ? (typeof this.stdinNeedsSystem === 'function' && this.stdinNeedsSystem() && system ? `${system}\n\n${prompt}` : prompt)
+      : null;
     let output = '';
     let result;
     try {
@@ -69,6 +77,7 @@ class CodingAgentBase {
         binary: d.binary,
         args,
         cwd: projectPath,
+        stdinText,
         signal,
         onOutput: (line) => { output += line + '\n'; onEvent({ type: 'output', agent: this.id, text: line }); },
         onDiagnostic: (text) => onEvent({ type: 'diagnostic', agent: this.id, text }),

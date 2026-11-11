@@ -6,6 +6,7 @@
 // argument is passed as an array element to spawn().
 
 const { spawn } = require('node:child_process');
+const { spawnPlan, isWindowsShim } = require('../../../lib/win-spawn.js');
 
 function streamProcess({
   binary,
@@ -20,7 +21,10 @@ function streamProcess({
   return new Promise((resolve, reject) => {
     let child;
     try {
-      child = spawn(binary, args, { cwd, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
+      // Windows .cmd/.bat shims must go through cmd.exe (see lib/win-spawn.js);
+      // everything else spawns directly with array args — never a shell string.
+      const plan = spawnPlan(binary, args, { cwd, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
+      child = spawn(plan.file, plan.args, plan.options);
     } catch (e) {
       return reject(new Error(`${binary} failed to start: ${e.message}`));
     }
@@ -57,6 +61,7 @@ function streamProcess({
       onDiagnostic(s);
     });
 
+    let allOutput = '';
     child.stdout.on('data', (d) => {
       arm();
       buf += d.toString();
@@ -65,25 +70,25 @@ function streamProcess({
       while ((i = buf.indexOf('\n')) >= 0) {
         const line = buf.slice(0, i);
         buf = buf.slice(i + 1);
-        if (line.trim()) onOutput(line);
+        if (line.trim()) { allOutput += line + '\n'; onOutput(line); }
       }
     });
 
     child.on('close', (code) => {
       clearTimeout(idle);
       const tail = buf.trim();
-      if (tail) onOutput(tail);
+      if (tail) { allOutput += tail + '\n'; onOutput(tail); }
       if (signal) signal.removeEventListener('abort', onAbort);
-      if (aborted) return resolve({ exitCode: code, aborted: true });
+      if (aborted) return resolve({ exitCode: code, aborted: true, output: allOutput });
       if (stalled) return reject(new Error(`${binary} stopped responding (no output for ${idleMs / 1000}s).`));
       if (code !== 0) {
         const s = stderr.trim();
         if (/not\s*logged|login|unauthor|auth|401|403|API key/i.test(s)) {
           return reject(new Error(`${binary} is not authenticated. Run its official login flow (e.g. "${binary} login") in a terminal, then retry.`));
         }
-        return resolve({ exitCode: code, aborted: false, error: s.slice(0, 400) || `exit code ${code}` });
+        return resolve({ exitCode: code, aborted: false, output: allOutput, error: s.slice(0, 400) || `exit code ${code}` });
       }
-      resolve({ exitCode: 0, aborted: false });
+      resolve({ exitCode: 0, aborted: false, output: allOutput });
     });
 
     if (stdinText != null) {
@@ -94,4 +99,4 @@ function streamProcess({
   });
 }
 
-module.exports = { streamProcess };
+module.exports = { streamProcess, isWindowsShim };

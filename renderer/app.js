@@ -52,31 +52,48 @@ const THEME_SURFACE_HSL = {
 };
 function applyTheme({ hue, sat, contrast }) {
   const root = document.documentElement.style;
-  const satOf = (s) => Math.min(100, Math.max(0, s * (sat / 100)));
-  const lumOf = (l) => Math.min(100, Math.max(0, l * (contrast / 100)));
+  // SATURATION: factor 0..2 across the full slider. Colors already at 100% sat
+  // can't get "more saturated", so past 100% we push lightness toward the vivid
+  // 50% pivot instead — the slider visibly brightens/intensifies neon colors.
+  const satF = sat / 100;
+  const satOf = (s, l) => {
+    const s2 = Math.min(100, Math.max(0, s * satF));
+    const l2 = satF > 1 ? l - (l - 50) * (satF - 1) * 0.35 : l;
+    return [s2, Math.min(100, Math.max(0, l2))];
+  };
+  // CONTRAST: classic midpoint-anchored S-curve around 50% lightness. Dark
+  // surfaces get deeper, light text gets brighter, mid-tones spread apart —
+  // visible on everything (the old formula pinned accent lightness at 50%).
+  const conF = contrast / 100;
+  const conOf = (l) => {
+    const v = ((l / 100) - 0.5) * conF + 0.5;
+    return Math.min(100, Math.max(0, v * 100));
+  };
   for (const [name, [h, s, l]] of Object.entries(THEME_BASE_HSL)) {
     const newH = ((h + hue) % 360 + 360) % 360;
-    const newS = Math.min(100, Math.max(0, s * (sat / 100)));
-    const newL = Math.min(100, Math.max(0, 50 + (l - 50) * (contrast / 100)));
+    const [newS, newL] = satOf(s, conOf(l));
     root.setProperty(name, `hsl(${newH.toFixed(0)}, ${newS.toFixed(0)}%, ${newL.toFixed(0)}%)`);
   }
-  // Surfaces: hue follows the accents, lightness follows contrast around its own baseline.
+  // Surfaces: hue follows the accents; same sat/contrast treatment.
   for (const [name, [h, s, l]] of Object.entries(THEME_SURFACE_HSL)) {
     const newH = ((h + hue) % 360 + 360) % 360;
-    root.setProperty(name, `hsl(${newH.toFixed(0)}, ${satOf(s).toFixed(0)}%, ${lumOf(l).toFixed(0)}%)`);
+    const [newS, newL] = satOf(s, conOf(l));
+    root.setProperty(name, `hsl(${newH.toFixed(0)}, ${newS.toFixed(0)}%, ${newL.toFixed(0)}%)`);
   }
   // Field fills and the wash behind the full-page Settings view keep their alpha.
   const fh = ((252 + hue) % 360 + 360) % 360;
-  root.setProperty('--field', `hsla(${fh.toFixed(0)}, ${satOf(50).toFixed(0)}%, ${lumOf(4).toFixed(0)}%, 0.7)`);
+  const [fs, fl] = satOf(50, conOf(4));
+  root.setProperty('--field', `hsla(${fh.toFixed(0)}, ${fs.toFixed(0)}%, ${fl.toFixed(0)}%, 0.7)`);
   const wh = ((270 + hue) % 360 + 360) % 360;
-  root.setProperty('--bg-wash', `hsla(${wh.toFixed(0)}, ${satOf(71).toFixed(0)}%, ${Math.min(40, lumOf(27)).toFixed(0)}%, 0.35)`);
+  const [ws, wl] = satOf(71, conOf(27));
+  root.setProperty('--bg-wash', `hsla(${wh.toFixed(0)}, ${ws.toFixed(0)}%, ${Math.min(40, wl).toFixed(0)}%, 0.35)`);
   // Keep the purple-tinted borders/glow in step with the shifted purple instead of
   // staying frozen at the original hue.
-  const [ph, ps] = THEME_BASE_HSL['--neon-purple'];
+  const [ph, ps0] = THEME_BASE_HSL['--neon-purple'];
   const h2 = ((ph + hue) % 360 + 360) % 360;
-  const s2 = Math.min(100, Math.max(0, ps * (sat / 100)));
-  root.setProperty('--line', `hsla(${h2.toFixed(0)}, ${s2.toFixed(0)}%, 50%, 0.3)`);
-  root.setProperty('--line-glow', `hsla(${h2.toFixed(0)}, ${s2.toFixed(0)}%, 50%, 0.8)`);
+  const [s2, l2] = satOf(ps0, 50);
+  root.setProperty('--line', `hsla(${h2.toFixed(0)}, ${s2.toFixed(0)}%, ${l2.toFixed(0)}%, 0.3)`);
+  root.setProperty('--line-glow', `hsla(${h2.toFixed(0)}, ${s2.toFixed(0)}%, ${l2.toFixed(0)}%, 0.8)`);
   // The animated background canvas paints with its own colours — let it re-read them.
   document.dispatchEvent(new Event('vp-theme'));
 }

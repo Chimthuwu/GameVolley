@@ -26,12 +26,13 @@ class CodexAgent extends CodingAgentBase {
     return 'Install: npm i -g @openai/codex  (uses your OpenAI API key — set OPENAI_API_KEY). Then run "codex login" or export the key.';
   }
 
-  buildArgs({ prompt, system = '', model = null }) {
+  buildArgs({ prompt, system = '', model = null, useStdin = false }) {
     const args = ['exec', '--full-auto'];
     if (model) args.push('-m', String(model));
     if (system) args.push('--cd', process.cwd(), '-s', system);
-    // The task prompt is the trailing positional argument.
-    args.push(prompt);
+    // The task prompt is the trailing positional argument — unless it travels via
+    // stdin (Windows shim launches), which `codex exec` also accepts.
+    if (!useStdin) args.push(prompt);
     return args;
   }
 }

@@ -21,14 +21,20 @@ class GeminiAgent extends CodingAgentBase {
     return 'Install: npm i -g @google/gemini-cli  (or the Antigravity "agy" CLI). Run it once and sign in with your Google account.';
   }
 
-  buildArgs({ prompt, system = '', model = null }) {
-    const args = ['-p'];
-    const full = system ? `${system}\n\n${prompt}` : prompt;
-    args.push(full);
+  buildArgs({ prompt, system = '', model = null, useStdin = false }) {
+    const args = [];
+    if (!useStdin) {
+      // Gemini has no system flag here: system text is merged into the positional prompt.
+      const full = system ? `${system}\n\n${prompt}` : prompt;
+      args.push('-p', full);
+    } // useStdin: the base class writes prompt (+ system, via stdinNeedsSystem) to stdin.
     args.push('--yolo');
     if (model) args.push('--model', String(model));
     return args;
   }
+
+  // Gemini merges the system text into the prompt, so the stdin payload must carry it.
+  stdinNeedsSystem() { return true; }
 }
 
 module.exports = GeminiAgent;
