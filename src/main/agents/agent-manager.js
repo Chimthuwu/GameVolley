@@ -113,6 +113,20 @@ class AgentManager {
   }
 
   _developerAgent(developerId) {
+    // "prov:<providerId>" = an AI-provider developer (writes files directly, no CLI).
+    if (developerId && developerId.startsWith('prov:')) {
+      const pid = developerId.slice(5);
+      const key = `__prov_${pid}`;
+      if (!this.agents[key]) {
+        const { ProviderDevAgent } = require('./provider-dev-agent.js');
+        this.agents[key] = new ProviderDevAgent({
+          provider: this.providers.getProvider(pid),
+          projectManager: this.projectManager,
+          providerId: pid,
+        });
+      }
+      return this.agents[key];
+    }
     const agent = this.agents[developerId];
     if (!agent) throw new Error(`No coding agent "${developerId}" is available. Install its CLI or pick a different Developer.`);
     return agent;

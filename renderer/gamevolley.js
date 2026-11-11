@@ -112,8 +112,9 @@
 
   // ---------- roles ----------
   async function loadRoles() {
+    let ps = null;
     try {
-      const ps = await pv.providersList();
+      ps = await pv.providersList();
       fillSelect($('gvDirector'), ps.map((p) => [p.id, p.name]));
       fillSelect($('gvCritic'), ps.map((p) => [p.id, p.name]));
     } catch {}
@@ -135,6 +136,23 @@
         dev.appendChild(o);
       }
     } catch {}
+    // AI providers as Developer too ("prov:<id>"): they write the files directly,
+    // no coding CLI needed. Listed under a separator after the installed CLIs.
+    try {
+      const dev = $('gvDeveloper');
+      if (dev && ps && ps.length) {
+        const sep = document.createElement('option');
+        sep.disabled = true;
+        sep.textContent = '── AI providers (write files directly) ──';
+        dev.appendChild(sep);
+        for (const p of ps) {
+          const o = document.createElement('option');
+          o.value = `prov:${p.id}`;
+          o.textContent = `${p.name} — AI builds the files`;
+          dev.appendChild(o);
+        }
+      }
+    } catch { /* CLI list still works */ }
     // Restore last selections.
     const d = store.get('gvDirector', 'openrouter');
     const c = store.get('gvCritic', 'openrouter');
@@ -154,6 +172,17 @@
     };
     $('gvDirector').addEventListener('change', () => swapRows($('gvDirectorModel'), $('gvDirector').value));
     $('gvCritic').addEventListener('change', () => swapRows($('gvCriticModel'), $('gvCritic').value));
+    // Developer select: provider-developers use the provider's model namespace,
+    // CLIs use their own — swap the placeholder so the field reads right either way.
+    const devModel = $('gvDeveloperModel');
+    const syncDevPlaceholder = () => {
+      const v = $('gvDeveloper').value || '';
+      devModel.placeholder = v.startsWith('prov:')
+        ? `model for ${v.slice(5)} · blank = provider default`
+        : 'CLI model · blank = agent default';
+    };
+    $('gvDeveloper').addEventListener('change', syncDevPlaceholder);
+    syncDevPlaceholder();
     // Persist model choices as soon as they're set (not just on build).
     for (const id of ['gvDirectorModel', 'gvCriticModel', 'gvDeveloperModel']) {
       $(id).addEventListener('change', () => store.set(id, $(id).value.trim()));
