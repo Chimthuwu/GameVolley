@@ -15,4 +15,33 @@ contextBridge.exposeInMainWorld('pv', {
   providerCredsHas: inv('provider:creds:has'), providerCredsSave: inv('provider:creds:save'),
   providerModels: inv('provider:models'), providerConnect: inv('provider:connect'),
   onEvent: (cb) => ipcRenderer.on('run:event', (_e, ev) => cb(ev)),
+
+  // ---- GameVolley: real project workspace ----
+  projectCreate: inv('project:create'),
+  projectOpen: inv('project:open'),
+  projectGetActive: inv('project:active'),
+  projectListFiles: inv('project:listFiles'),
+  projectReadFile: inv('project:readFile'),
+  projectWriteFile: inv('project:writeFile'),
+  projectDeleteFile: inv('project:deleteFile'),
+  projectSummary: inv('project:summary'),
+  projectEntry: inv('project:entry'),
+  projectOpenFolder: inv('project:openFolder'),
+  checkpointList: inv('checkpoint:list'),
+  checkpointRestore: inv('checkpoint:restore'),
+  checkpointRemove: inv('checkpoint:remove'),
+  openDir: inv('dialog:openDir'),
+  codingStatus: inv('agent:codingStatus'),
+  agentStart: inv('agent:start'),
+  agentCancel: inv('agent:cancel'),
+
+  // Embedded game preview (WebContentsView).
+  previewLoad: inv('preview:load'),
+  previewReload: inv('preview:reload'),
+  previewSetBounds: inv('preview:setBounds'),
+  previewFullscreen: inv('preview:fullscreen'),
+  previewClose: inv('preview:close'),
+
+  // Streaming events from the GameVolley orchestration.
+  gameOnEvent: (cb) => ipcRenderer.on('gamevolley:event', (_e, ev) => cb(ev)),
 });

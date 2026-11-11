@@ -2,14 +2,16 @@
 <html lang="en"><head><meta charset="utf-8">
 <meta name="color-scheme" content="dark">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://api.github.com https://raw.githubusercontent.com">
-<title>VolleyPrompt</title>
+<title>GameVolley</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Rajdhani:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap">
-<link rel="stylesheet" href="style.css"></head>
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="gamevolley.css">
 <body>
 <div class="titlebar" id="titlebar">
-  <div class="tb-brand"><button class="tb-btn sidebar-toggle" id="btnSidebarToggle" title="Toggle sidebar" aria-label="Toggle sidebar" aria-expanded="true">☰</button><img src="icon.svg" alt=""><span>Volley<span>Prompt</span></span></div>
+  <div class="tb-brand"><button class="tb-btn sidebar-toggle" id="btnSidebarToggle" title="Toggle sidebar" aria-label="Toggle sidebar" aria-expanded="true">☰</button><img src="icon.svg" alt=""><span>GameVolley</span></div>
+  <div class="tb-tabs"><button id="tabGame" class="tb-btn tab-active" title="GameVolley workspace">🎮 GameVolley</button><button id="tabVolley" class="tb-btn" title="Original Volley prompt generator">✍ Volley</button></div>
   <div class="tb-controls">
     <div class="theme-dropdown-wrap">
       <button class="tb-btn" id="btnTheme" title="Theme" aria-label="Theme" aria-expanded="false">🎨</button>
@@ -128,6 +130,56 @@
     </div>
   </section>
   </main>
+</div>
+
+<div id="gameRoot" class="hidden">
+  <header class="gv-header">
+    <div class="gv-brand">🎮 GameVolley</div>
+    <div class="gv-header-actions">
+      <button id="gvNew" class="gv-btn">+ New Game</button>
+      <button id="gvOpen" class="gv-btn ghost">Open Project</button>
+      <span id="gvProjectName" class="gv-project-name">No project open</span>
+    </div>
+  </header>
+  <aside class="gv-sidebar">
+    <div class="gv-side-label">Projects</div>
+    <div id="gvProjects" class="gv-projects"></div>
+    <div class="gv-side-label">Build roles</div>
+    <div class="gv-roles">
+      <label>🎬 Director<select id="gvDirector"></select></label>
+      <label>🔍 Critic<select id="gvCritic"></select></label>
+      <label>🛠 Developer<select id="gvDeveloper"></select></label>
+    </div>
+    <div class="gv-side-label">Checkpoints</div>
+    <div id="gvCheckpoints" class="gv-checkpoints"><span class="gv-muted">None yet</span></div>
+  </aside>
+  <section class="gv-preview">
+    <div class="gv-preview-bar">
+      <span class="gv-preview-title">GAME PREVIEW</span>
+      <div class="gv-preview-controls">
+        <button id="gvReload" title="Reload">⟳</button>
+        <button id="gvFull" title="Fullscreen">⛶</button>
+        <button id="gvOpenFolder" title="Open folder">📂</button>
+      </div>
+    </div>
+    <div id="gvPreviewArea" class="gv-preview-area">
+      <div class="gv-preview-empty" id="gvPreviewEmpty">No game loaded yet. Create a game and it will play here.</div>
+    </div>
+  </section>
+  <section class="gv-activity">
+    <div class="gv-activity-head">AGENT ACTIVITY</div>
+    <div id="gvActivity" class="gv-activity-log"></div>
+  </section>
+  <section class="gv-composer">
+    <textarea id="gvIdea" placeholder="Describe a silly game idea — or tell GameVolley what to change…"></textarea>
+    <div class="gv-composer-actions">
+      <button id="gvCreate" class="gv-btn primary">▶ Create Game</button>
+      <button id="gvImprove" class="gv-btn">Improve</button>
+      <button id="gvFix" class="gv-btn">Fix Bug</button>
+      <button id="gvStop" class="gv-btn danger hidden">■ Stop</button>
+      <span id="gvStatus" class="gv-status"></span>
+    </div>
+  </section>
 </div>
 
 <div id="modal" class="modal hidden"><div class="card">
@@ -249,4 +301,5 @@
   <div class="row"><button class="big" id="promptOk">Save</button><button class="ghost" id="promptCancel">Cancel</button></div>
 </div></div>
 <script src="app.js"></script>
+<script src="gamevolley.js"></script>
 </body></html>

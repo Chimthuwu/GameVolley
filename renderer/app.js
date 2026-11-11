@@ -107,6 +107,10 @@ document.addEventListener('click', (e) => { if (!themePanel.classList.contains('
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !themePanel.classList.contains('hidden')) closeThemePanel(); });
 
 (async () => {
+  // Migration: the canonical provider id changed from 'google' to 'gemini'.
+  for (const k of ['authorProvider', 'criticProvider', 'setWriterProvider', 'setCriticProvider', 'setFallbackProvider']) {
+    if (store.get(k) === 'google') store.set(k, 'gemini');
+  }
   // Original shipped pair. The ":free" variants of both were retired by OpenRouter, so the same
   // models are the paid ids here — a couple of cents per volley. The "Free & capable" pair in
   // Model pairs is the $0 equivalent.

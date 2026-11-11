@@ -1,8 +1,17 @@
-const { app, BrowserWindow, ipcMain, safeStorage, shell, clipboard } = require('electron');
+const { app, BrowserWindow, ipcMain, safeStorage, shell, clipboard, dialog } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const runsStore = require('./lib/runs-store.js');
 const providerModule = require('./lib/providers.js');
+
+// GameVolley: the real local development workspace, embedded preview, and the
+// multi-role coding-agent orchestration that turns an idea into a playable game.
+const ProjectManager = require('./src/main/project-manager.js');
+const PreviewManager = require('./src/main/preview-manager.js');
+const AgentManager = require('./src/main/agents/agent-manager.js');
+const CodexAgent = require('./src/main/agents/codex-agent.js');
+const ClaudeCodeAgent = require('./src/main/agents/claude-code-agent.js');
+const GeminiAgent = require('./src/main/agents/gemini-agent.js');
 
 const API = 'https://openrouter.ai/api/v1';
 const keyFile = () => path.join(app.getPath('userData'), 'key.bin');
@@ -44,6 +53,7 @@ function createWindow() {
   win.setMenuBarVisibility(false);
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
   win.webContents.setWindowOpenHandler(({ url }) => { shell.openExternal(url); return { action: 'deny' }; });
+  setupGameVolley();
 }
 
 if (!app.requestSingleInstanceLock()) app.quit();
@@ -100,10 +110,16 @@ function saveGithubToken(token) {
 const providerDataDir = () => path.join(app.getPath('userData'), 'providers');
 const provCredFile = (id) => path.join(providerDataDir(), `${id}.bin`);
 function loadProvCred(id) {
-  try {
-    const buf = fs.readFileSync(provCredFile(id));
-    return safeStorage.isEncryptionAvailable() ? safeStorage.decryptString(buf) : buf.toString('utf8');
-  } catch { return ''; }
+  // Canonical provider id is 'gemini'; older installs saved a 'google' credential file.
+  // Read the current id first, then fall back to the legacy name so existing users keep working.
+  const candidates = id === 'gemini' ? ['gemini', 'google'] : [id];
+  for (const cand of candidates) {
+    try {
+      const buf = fs.readFileSync(provCredFile(cand));
+      return safeStorage.isEncryptionAvailable() ? safeStorage.decryptString(buf) : buf.toString('utf8');
+    } catch {}
+  }
+  return '';
 }
 function saveProvCred(id, value) {
   const v = String(value || '').trim();
@@ -847,6 +863,120 @@ ipcMain.handle('run:models', (_e, next) => {
   return { ok: true, retry, models: { ...current.models } };
 });
 ipcMain.handle('run:stop', () => { if (current) { current.ctl.abort(); current.resolveNotes?.(null); } });
+
+// ---- GameVolley: project workspace, preview, and coding-agent orchestration ----
+let projectManager, previewManager, agentManager, gameAgents;
+let currentGame = null;
+function sendGame(ev) { if (win && !win.isDestroyed()) win.webContents.send('gamevolley:event', ev); }
+function setupGameVolley() {
+  if (projectManager) return; // idempotent across secondary window lifecycle
+  projectManager = new ProjectManager((ev) => sendGame(ev));
+  previewManager = new PreviewManager({ window: win, onEvent: (ev) => sendGame(ev) });
+  gameAgents = { codex: new CodexAgent(), claude: new ClaudeCodeAgent(), gemini: new GeminiAgent() };
+  agentManager = new AgentManager({
+    providers: providerModule,
+    agents: gameAgents,
+    projectManager,
+    hooks: {
+      // The orchestrator asks us to show the game; we load it into the embedded view.
+      loadPreview: ({ projectPath, entry }) =>
+        previewManager.loadProject({ projectPath, entry })
+          .catch((e) => sendGame({ type: 'preview:error', message: String(e.message || e) })),
+    },
+  });
+}
+
+ipcMain.handle('project:create', (_e, projectPath, opts) => projectManager.createProject(projectPath, opts || {}));
+ipcMain.handle('project:open', (_e, projectPath) => projectManager.openProject(projectPath));
+ipcMain.handle('project:active', () => projectManager.getActive());
+ipcMain.handle('project:listFiles', (_e, rel) => projectManager.listFiles(rel || ''));
+ipcMain.handle('project:readFile', (_e, rel) => projectManager.readFile(rel));
+ipcMain.handle('project:writeFile', (_e, rel, content) => projectManager.writeFile(rel, content));
+ipcMain.handle('project:deleteFile', (_e, rel) => projectManager.deleteFile(rel, { explicit: true }));
+ipcMain.handle('project:summary', () => projectManager.getProjectSummary());
+ipcMain.handle('project:entry', () => projectManager.detectEntryPoint());
+ipcMain.handle('project:openFolder', () => {
+  const a = projectManager.getActive();
+  if (a) shell.openPath(a.path);
+  return !!a;
+});
+
+ipcMain.handle('checkpoint:list', async () => {
+  const a = projectManager.getActive();
+  return a ? projectManager.checkpoint().list(a.path) : [];
+});
+ipcMain.handle('checkpoint:restore', async (_e, id) => {
+  const a = projectManager.getActive();
+  return a ? projectManager.checkpoint().restore(a.path, id) : { ok: false };
+});
+ipcMain.handle('checkpoint:remove', async (_e, id) => {
+  const a = projectManager.getActive();
+  return a ? projectManager.checkpoint().remove(a.path, id) : { ok: false };
+});
+
+// Native folder picker for choosing where to build a game.
+ipcMain.handle('dialog:openDir', async () => {
+  try {
+    const res = await dialog.showOpenDialog(win, { properties: ['openDirectory', 'createDirectory'] });
+    return res.canceled ? null : res.filePaths[0];
+  } catch { return null; }
+});
+
+// Which coding agents are actually installed (so the UI can disable unavailable ones).
+ipcMain.handle('agent:codingStatus', async () => {
+  const out = {};
+  for (const [id, a] of Object.entries(gameAgents)) {
+    try { out[id] = await a.getStatus(); } catch (e) { out[id] = { available: false, error: String(e.message || e) }; }
+  }
+  return out;
+});
+
+// Start a build (mode: create | improve | fix). Runs in the background and streams
+// events via the 'gamevolley:event' channel; returns immediately.
+ipcMain.handle('agent:start', async (_e, cfg) => {
+  if (currentGame) return { ok: false, message: 'A game build is already running. Stop it first.' };
+  const ctl = new AbortController();
+  currentGame = { ctl };
+  const run = async () => {
+    try {
+      const method = cfg.mode === 'improve' ? 'improveGame' : cfg.mode === 'fix' ? 'fixGame' : 'createGame';
+      await agentManager[method]({
+        idea: cfg.idea,
+        projectPath: cfg.projectPath,
+        report: cfg.report,
+        roles: cfg.roles || {},
+        signal: ctl.signal,
+        onEvent: sendGame,
+        maxRounds: cfg.maxRounds || 3,
+      });
+    } catch (e) {
+      sendGame({ type: 'error', message: e.message || String(e) });
+    } finally {
+      currentGame = null;
+      sendGame({ type: 'agent:idle' });
+    }
+  };
+  run();
+  return { ok: true, started: true };
+});
+ipcMain.handle('agent:cancel', () => {
+  if (currentGame) { currentGame.ctl.abort(); return { ok: true }; }
+  return { ok: false, message: 'No build is running.' };
+});
+
+// Embedded game preview (WebContentsView).
+ipcMain.handle('preview:load', async () => {
+  const a = projectManager.getActive();
+  if (!a) return { ok: false, message: 'No active project.' };
+  const entry = await projectManager.detectEntryPoint();
+  if (!entry) return { ok: false, message: 'No playable entry point found in the project.' };
+  await previewManager.loadProject({ projectPath: a.path, entry });
+  return { ok: true, entry };
+});
+ipcMain.handle('preview:reload', () => { previewManager.reload(); return { ok: true }; });
+ipcMain.handle('preview:setBounds', (_e, rect) => { previewManager.setBounds(rect); return { ok: true }; });
+ipcMain.handle('preview:fullscreen', () => { previewManager.fullscreen(); return { ok: true }; });
+ipcMain.handle('preview:close', () => { previewManager.close(); return { ok: true }; });
 
 // ---- initialise the multi-provider module, wiring it to OpenRouter's existing helpers ----
 providerModule.init({

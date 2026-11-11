@@ -1,8 +1,8 @@
 {
-  "name": "volleyprompt",
-  "productName": "VolleyPrompt",
-  "version": "1.2.0",
-  "description": "Two AIs volley your prompt back and forth until it's perfect.",
+  "name": "gamevolley",
+  "productName": "GameVolley",
+  "version": "1.3.0",
+  "description": "Describe a silly game idea and watch multiple AI agents design, build, review and improve a real playable game in your workspace.",
   "main": "main.js",
   "author": "Serge",
   "license": "MIT",
@@ -17,8 +17,8 @@
     "site:deploy": "wrangler pages deploy site --project-name=volley-prompt --branch=main --commit-dirty=true"
   },
   "build": {
-    "appId": "com.serge.volleyprompt",
-    "productName": "VolleyPrompt",
+    "appId": "com.serge.gamevolley",
+    "productName": "GameVolley",
     "directories": {
       "output": "dist"
     },
@@ -27,12 +27,13 @@
       "preload.js",
       "lib/**",
       "renderer/**",
+      "src/**",
       "build/icon.png"
     ],
     "win": {
       "target": "nsis",
       "icon": "build/icon.ico",
-      "artifactName": "VolleyPrompt - Windows Setup v${version}.${ext}"
+      "artifactName": "GameVolley - Windows Setup v${version}.${ext}"
     },
     "mac": {
       "target": "dmg",

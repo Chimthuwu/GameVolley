@@ -16,7 +16,7 @@ const PROVIDERS = [
   { id: 'openrouter', name: 'OpenRouter', authType: 'api_key', paid: true, billingNote: 'Paid API (OpenRouter).' },
   { id: 'anthropic', name: 'Claude (Claude Code CLI)', authType: 'cli', requiresExternalCli: true, cliBinaries: ['claude'], installHint: 'Install the Claude Code CLI and run claude login.', billingNote: 'Your Claude Pro/Max/Ultra subscription.' },
   { id: 'openai', name: 'OpenAI', authType: 'api_key', paid: true, billingNote: 'Paid API key (OpenAI).' },
-  { id: 'google', name: 'Google Gemini (CLI)', authType: 'cli', requiresExternalCli: true, cliBinaries: ['gemini', 'agy'], installHint: 'Install the Google CLI and sign in.' },
+  { id: 'gemini', name: 'Google Gemini (CLI)', authType: 'cli', requiresExternalCli: true, cliBinaries: ['gemini', 'agy'], installHint: 'Install the Google CLI and sign in.' },
   { id: 'ollama', name: 'Ollama (Local)', authType: 'local', billingNote: 'Free — runs on your machine.' },
 ];
 
@@ -29,7 +29,7 @@ function makePv() {
         return () => Promise.resolve([{ id: 'openai/gpt-4o', perM: 0, isFree: true, isStealth: false, vision: true }]);
       case 'providersList': return () => Promise.resolve(PROVIDERS);
       case 'providersStatus':
-        return () => Promise.resolve({ openrouter: { connected: false }, anthropic: { installed: false, cli: true }, openai: { connected: false }, google: { installed: false, cli: true }, ollama: { connected: false } });
+        return () => Promise.resolve({ openrouter: { connected: false }, anthropic: { installed: false, cli: true }, openai: { connected: false }, gemini: { installed: false, cli: true }, ollama: { connected: false } });
       case 'providerCredsSave': return (_id, val) => Promise.resolve({ present: !!val, masked: val ? '••••1234' : '' });
       case 'providerConnect': return () => Promise.resolve({ ok: true, cli: false, models: [{ id: 'm1', name: 'm1', isFree: true, supportsVision: true }] });
       case 'providerModels': return () => Promise.resolve([{ id: 'm1', name: 'm1', isFree: true, supportsVision: true }]);

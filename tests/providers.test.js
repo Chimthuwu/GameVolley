@@ -32,9 +32,9 @@ providerModule.init(deps);
   // 'installed' depends on whether the real `claude` binary is on PATH in this env; only assert the CLI nature.
   assert.strictEqual((await ant.getModels())[0].billing, 'subscription', 'claude models billed via subscription');
 
-  const goo = providerModule.getProvider('google');
-  assert.strictEqual((await goo.getStatus()).cli, true, 'google is a CLI provider');
-  assert.strictEqual((await goo.getModels())[0].billing, 'free-account', 'google models billed as free account / API');
+  const goo = providerModule.getProvider('gemini');
+  assert.strictEqual((await goo.getStatus()).cli, true, 'gemini is a CLI provider');
+  assert.strictEqual((await goo.getModels())[0].billing, 'free-account', 'gemini models billed as free account / API');
 
   const oll = providerModule.getProvider('ollama');
   assert.strictEqual((await oll.getStatus()).connected, false, 'ollama not connected without a server');
