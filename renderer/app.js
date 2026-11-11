@@ -342,6 +342,9 @@ async function setupModelAutocomplete(input) {
   refreshVisionHints(); // rows just arrived — suggestions may become possible
 })();
 [...document.querySelectorAll('#author, #critic, .model-input')].forEach((el) => el && setupModelAutocomplete(el));
+// GameVolley role fields share this autocomplete; it exposes provider-row swapping so a
+// GameVolley provider change re-points the model list (openrouter catalog vs CLI/provider models).
+window.__vpApplyProviderRows = applyProviderToField;
 // Settings model fields get a visible caret, so it's obvious they open a picker.
 ['setWriter', 'setCritic', 'setFallback'].forEach((id) => {
   const input = $(id);

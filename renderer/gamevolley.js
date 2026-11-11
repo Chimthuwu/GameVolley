@@ -142,6 +142,22 @@
     if ($('gvDirector').querySelector(`option[value="${d}"]`)) $('gvDirector').value = d;
     if ($('gvCritic').querySelector(`option[value="${c}"]`)) $('gvCritic').value = c;
     if ($('gvDeveloper').querySelector(`option[value="${a}"]`)) $('gvDeveloper').value = a;
+    // Model fields: blank = let the backend pick (first free model for Director/Critic,
+    // the CLI's own default for the Developer agent).
+    $('gvDirectorModel').value = store.get('gvDirectorModel', '');
+    $('gvCriticModel').value = store.get('gvCriticModel', '');
+    $('gvDeveloperModel').value = store.get('gvDeveloperModel', '');
+    // Provider change re-points the model autocomplete's rows (same mechanism Volley uses):
+    // openrouter shows the full OpenRouter catalog, other providers show their own model lists.
+    const swapRows = (input, provId) => {
+      try { window.__vpApplyProviderRows && window.__vpApplyProviderRows(input, provId); } catch { /* autocomplete stays on the default rows */ }
+    };
+    $('gvDirector').addEventListener('change', () => swapRows($('gvDirectorModel'), $('gvDirector').value));
+    $('gvCritic').addEventListener('change', () => swapRows($('gvCriticModel'), $('gvCritic').value));
+    // Persist model choices as soon as they're set (not just on build).
+    for (const id of ['gvDirectorModel', 'gvCriticModel', 'gvDeveloperModel']) {
+      $(id).addEventListener('change', () => store.set(id, $(id).value.trim()));
+    }
   }
 
   function fillSelect(sel, pairs) {
@@ -156,9 +172,9 @@
 
   function currentRoles() {
     return {
-      creativeDirector: { provider: $('gvDirector').value },
-      critic: { provider: $('gvCritic').value },
-      developer: { agent: $('gvDeveloper').value },
+      creativeDirector: { provider: $('gvDirector').value, model: $('gvDirectorModel').value.trim() || null },
+      critic: { provider: $('gvCritic').value, model: $('gvCriticModel').value.trim() || null },
+      developer: { agent: $('gvDeveloper').value, model: $('gvDeveloperModel').value.trim() || null },
     };
   }
 
@@ -197,6 +213,9 @@
     store.set('gvDirector', $('gvDirector').value);
     store.set('gvCritic', $('gvCritic').value);
     store.set('gvDeveloper', $('gvDeveloper').value);
+    store.set('gvDirectorModel', $('gvDirectorModel').value.trim());
+    store.set('gvCriticModel', $('gvCriticModel').value.trim());
+    store.set('gvDeveloperModel', $('gvDeveloperModel').value.trim());
     beginBuild({ mode: 'create', idea, projectPath: dir });
   }
 

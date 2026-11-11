@@ -68,7 +68,8 @@ body.view-volley #gameRoot { display: none; }
 .gv-file.dir { color: #8fa0c0; }
 .gv-muted { color: var(--muted-foreground, #7a8296); font-size: 12px; }
 .gv-roles label { display: flex; flex-direction: column; gap: 3px; font-size: 11px; color: var(--muted-foreground, #9aa3b2); margin-bottom: 8px; }
-.gv-roles select { background: var(--field, #0e1020); color: #eaf0ff; border: 1px solid var(--line, rgba(120,120,200,0.3)); border-radius: 6px; padding: 5px; font-size: 13px; }
+.gv-roles select, .gv-roles input { background: var(--field, #0e1020); color: #eaf0ff; border: 1px solid var(--line, rgba(120,120,200,0.3)); border-radius: 6px; padding: 5px; font-size: 13px; width: 100%; box-sizing: border-box; }
+.gv-roles input::placeholder { color: var(--muted-foreground, #5b6478); font-size: 11px; }
 .gv-checkpoints { display: flex; flex-direction: column; gap: 4px; }
 .gv-cp { display: flex; align-items: center; justify-content: space-between; gap: 6px; font-size: 12px; color: #c8d0e0; }
 .gv-cp-restore { font-size: 11px; padding: 2px 8px; border-radius: 6px; cursor: pointer; color: #eaf0ff; background: rgba(46,230,255,0.12); border: 1px solid rgba(46,230,255,0.3); }
