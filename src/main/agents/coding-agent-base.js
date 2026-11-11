@@ -63,16 +63,38 @@ class CodingAgentBase {
     }
     const args = this.buildArgs({ prompt, system, model });
     let output = '';
-    const result = await streamProcess({
-      binary: d.binary,
-      args,
-      cwd: projectPath,
-      signal,
-      onOutput: (line) => { output += line + '\n'; onEvent({ type: 'output', agent: this.id, text: line }); },
-      onDiagnostic: (text) => onEvent({ type: 'diagnostic', agent: this.id, text }),
-      idleMs: 240000,
-    });
+    let result;
+    try {
+      result = await streamProcess({
+        binary: d.binary,
+        args,
+        cwd: projectPath,
+        signal,
+        onOutput: (line) => { output += line + '\n'; onEvent({ type: 'output', agent: this.id, text: line }); },
+        onDiagnostic: (text) => onEvent({ type: 'diagnostic', agent: this.id, text }),
+        idleMs: 240000,
+      });
+    } catch (e) {
+      // Real failure (stall, spawn error): never disguise it as a completed task.
+      onEvent({ type: 'error', agent: this.id, message: e.message });
+      throw e;
+    }
     result.output = output;
+    // FALSE-SUCCESS GUARD: a non-zero exit is a FAILED task, not a result. The
+    // caller must see an exception (which the orchestrator reports honestly), and
+    // cancellation is reported distinctly from failure.
+    if (result.aborted) {
+      const err = new Error(`${this.name} was cancelled.`);
+      err.cancelled = true;
+      onEvent({ type: 'error', agent: this.id, message: err.message });
+      throw err;
+    }
+    if (result.exitCode !== 0) {
+      const err = new Error(`${this.name} failed with exit code ${result.exitCode}.${result.error ? ' ' + result.error : ''}`);
+      err.exitCode = result.exitCode;
+      onEvent({ type: 'error', agent: this.id, message: err.message });
+      throw err;
+    }
     return result;
   }
 

@@ -204,19 +204,27 @@ class AgentManager {
       lastEntry = await this._reloadPreview(onEvent);
       this._emit(onEvent, { type: 'progress', phase: 'review', round, maxRounds });
       lastReview = await this._review(brief, { signal, onEvent });
+      // A missing/malformed verdict (null) is NOT a pass: only an explicit SHIP/CLOSE
+      // with zero HIGH/MED findings completes the loop.
       const highOrMed = lastReview.findings.filter((f) => f.severity !== 'LOW');
-      if ((lastReview.verdict === 'SHIP' || lastReview.verdict === 'CLOSE') && highOrMed.length === 0) break;
-      if (highOrMed.length === 0) break;
+      const passed = (lastReview.verdict === 'SHIP' || lastReview.verdict === 'CLOSE') && highOrMed.length === 0;
+      if (passed) break;
     }
 
+    const passed = (lastReview.verdict === 'SHIP' || lastReview.verdict === 'CLOSE')
+      && lastReview.findings.filter((f) => f.severity !== 'LOW').length === 0;
     this._emit(onEvent, { type: 'game:done', result: {
-      verifiedFixes: lastReview.findings.filter((f) => f.severity === 'LOW').map((f) => f.message),
-      unverifiedImprovements: [],
+      // Honest reporting: nothing has been EXECUTION-verified yet (no verification
+      // stage exists), so LOW findings are "remaining notes", not verified fixes.
+      verifiedFixes: [],
+      unverifiedImprovements: lastReview.findings.filter((f) => f.severity === 'LOW').map((f) => f.message),
       knownIssues: lastReview.findings.filter((f) => f.severity === 'HIGH' || f.severity === 'MED').map((f) => f.message),
+      verdict: lastReview.verdict || 'NONE',
+      completed: passed,
       entry: lastEntry,
       rounds: round,
     } });
-    return { brief, entry: lastEntry, review: lastReview, rounds: round };
+    return { brief, entry: lastEntry, review: lastReview, rounds: round, completed: passed };
   }
 
   // Public: follow-up improvement on an existing project. User instruction wins.
@@ -249,16 +257,21 @@ class AgentManager {
       this._emit(onEvent, { type: 'progress', phase: 'review', round, maxRounds });
       lastReview = await this._review('', { signal, onEvent });
       const actionable = lastReview.findings.filter((f) => f.severity !== 'LOW');
-      if (actionable.length === 0) break;
+      const passed = (lastReview.verdict === 'SHIP' || lastReview.verdict === 'CLOSE') && actionable.length === 0;
+      if (passed) break;
     }
+    const passed = (lastReview.verdict === 'SHIP' || lastReview.verdict === 'CLOSE')
+      && lastReview.findings.filter((f) => f.severity !== 'LOW').length === 0;
     this._emit(onEvent, { type: 'game:done', result: {
-      verifiedFixes: lastReview.findings.filter((f) => f.severity === 'LOW').map((f) => f.message),
-      unverifiedImprovements: [],
+      verifiedFixes: [],
+      unverifiedImprovements: lastReview.findings.filter((f) => f.severity === 'LOW').map((f) => f.message),
       knownIssues: lastReview.findings.filter((f) => f.severity === 'HIGH' || f.severity === 'MED').map((f) => f.message),
+      verdict: lastReview.verdict || 'NONE',
+      completed: passed,
       entry: lastEntry,
       rounds: round,
     } });
-    return { entry: lastEntry, review: lastReview, rounds: round };
+    return { entry: lastEntry, review: lastReview, rounds: round, completed: passed };
   }
 
   _setRoles(roles = {}) {
