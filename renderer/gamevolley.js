@@ -175,14 +175,20 @@
     // Developer select: provider-developers use the provider's model namespace,
     // CLIs use their own — swap the placeholder so the field reads right either way.
     const devModel = $('gvDeveloperModel');
-    const syncDevPlaceholder = () => {
+    const syncDevModelRows = () => {
       const v = $('gvDeveloper').value || '';
-      devModel.placeholder = v.startsWith('prov:')
-        ? `model for ${v.slice(5)} · blank = provider default`
-        : 'CLI model · blank = agent default';
+      if (v.startsWith('prov:')) {
+        // Same autocomplete experience as Director/Critic: the provider's real model list.
+        devModel.placeholder = `model for ${v.slice(5)} · blank = auto (prefers free)`;
+        try { window.__vpApplyProviderRows && window.__vpApplyProviderRows(devModel, v.slice(5)); } catch { /* keep default rows */ }
+      } else {
+        // CLI agents take their own model ids (not OpenRouter ones) — no fake suggestions.
+        devModel.placeholder = 'CLI model · blank = agent default';
+        try { window.__vpSetModelRows && window.__vpSetModelRows(devModel, []); } catch { /* keep default rows */ }
+      }
     };
-    $('gvDeveloper').addEventListener('change', syncDevPlaceholder);
-    syncDevPlaceholder();
+    $('gvDeveloper').addEventListener('change', syncDevModelRows);
+    syncDevModelRows();
     // Persist model choices as soon as they're set (not just on build).
     for (const id of ['gvDirectorModel', 'gvCriticModel', 'gvDeveloperModel']) {
       $(id).addEventListener('change', () => store.set(id, $(id).value.trim()));

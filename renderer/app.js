@@ -345,6 +345,11 @@ async function setupModelAutocomplete(input) {
 // GameVolley role fields share this autocomplete; it exposes provider-row swapping so a
 // GameVolley provider change re-points the model list (openrouter catalog vs CLI/provider models).
 window.__vpApplyProviderRows = applyProviderToField;
+// Direct row injection for non-provider namespaces (e.g. a GameVolley Developer CLI).
+window.__vpSetModelRows = (input, rows) => {
+  if (!input || !MODEL_ROWS_BY_INPUT.has(input)) return;
+  MODEL_ROWS_BY_INPUT.get(input).rows = rows || [];
+};
 // Settings model fields get a visible caret, so it's obvious they open a picker.
 ['setWriter', 'setCritic', 'setFallback'].forEach((id) => {
   const input = $(id);

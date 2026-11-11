@@ -19,6 +19,15 @@
 
 const DEFAULT_MAX_ROUNDS = 3;
 
+// Auto model pick (no explicit model): prefer a FREE model when the provider's list
+// marks one, so a blank field never silently bills the user. Falls back to the
+// provider's first listed model only when no free one exists.
+function pickAutoModel(models) {
+  if (!Array.isArray(models) || !models.length) return null;
+  const free = models.find((m) => m && (m.isFree || (typeof m.id === 'string' && m.id.includes(':free'))));
+  return (free || models[0]).id;
+}
+
 const CREATIVE_DIRECTOR_SYSTEM = `You are the Creative Director for an AI game studio. Given a short, often silly game idea, produce a concise DEVELOPMENT BRIEF that a coding agent will implement as a real, playable game. Be decisive and concrete.
 
 Include exactly these sections:
@@ -75,7 +84,7 @@ class AgentManager {
   async _brief(idea, { signal, onEvent }) {
     const provider = this.providers.getProvider(this._directorId);
     const models = await provider.getModels().catch(() => []);
-    const model = this._directorModel || (models[0] && models[0].id);
+    const model = this._directorModel || pickAutoModel(models);
     this._emit(onEvent, { type: 'agent:status', role: 'director', status: 'working', message: 'Writing the development brief…' });
     let brief = '';
     const res = await provider.chat({
@@ -97,7 +106,7 @@ class AgentManager {
     let text = '';
     const provider = this.providers.getProvider(this._criticId);
     const models = await provider.getModels().catch(() => []);
-    const model = this._criticModel || (models[0] && models[0].id);
+    const model = this._criticModel || pickAutoModel(models);
     const res = await provider.chat({
       model,
       system: CRITIC_SYSTEM,
