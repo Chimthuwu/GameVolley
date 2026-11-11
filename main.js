@@ -215,23 +215,37 @@ ipcMain.handle('github:repo:fetch', (_e, owner, repo) => fetchGithubRepository(S
 
 // ---- multi-provider IPC ----
 ipcMain.handle('providers:list', () =>
-  providerModule.getAllProviders().map((p) => ({ id: p.id, name: p.name, authType: p.authType, requiresExternalCli: p.requiresExternalCli }))
+  providerModule.getAllProviders().map((p) => p.meta())
 );
 ipcMain.handle('providers:status', async () => providerModule.getProviderStatuses());
 ipcMain.handle('provider:creds:has', (_e, id) => {
+  const p = providerModule.getProvider(id);
+  if (p.authType === 'cli') return { present: false, cli: true };
   const cred = loadProvCred(id);
   return { present: !!cred, masked: cred ? '••••' + cred.slice(-4) : '' };
 });
 ipcMain.handle('provider:creds:save', (_e, id, value) => {
+  const p = providerModule.getProvider(id);
+  if (p.authType === 'cli') return { present: false, cli: true, message: 'CLI providers use your own account via the installed CLI — nothing to save here.' };
   saveProvCred(id, value);
   const cred = loadProvCred(id);
   return { present: !!cred, masked: cred ? '••••' + cred.slice(-4) : '' };
 });
 ipcMain.handle('provider:models', async (_e, id) => providerModule.getProvider(id).getModels());
 ipcMain.handle('provider:connect', async (_e, id, value) => {
+  const p = providerModule.getProvider(id);
+  // CLI providers: no credential to save. "Connect" just verifies the binary is installed.
+  if (p.authType === 'cli') {
+    const st = await p.getStatus();
+    if (!st.installed) return { ok: false, installed: false, cli: true, message: p.installHint };
+    try {
+      const models = await p.getModels();
+      return { ok: true, installed: true, cli: true, binary: st.binary, models };
+    } catch (e) { return { ok: false, installed: true, cli: true, error: e.message || String(e) }; }
+  }
   if (value !== undefined && value !== null) saveProvCred(id, value);
   try {
-    const models = await providerModule.getProvider(id).getModels();
+    const models = await p.getModels();
     return { ok: true, models };
   } catch (e) {
     return { ok: false, error: e.message || String(e) };

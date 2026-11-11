@@ -425,16 +425,24 @@ async function renderProviders() {
     const name = document.createElement('span'); name.className = 'provider-name'; name.textContent = p.name;
     const stat = document.createElement('span');
     stat.className = 'provider-status' + (st.connected ? ' ok' : '');
-    stat.textContent = st.connected ? '✓ connected' : 'not connected';
+    if (p.authType === 'cli') stat.textContent = st.installed ? '✓ CLI installed' : 'CLI not installed';
+    else stat.textContent = st.connected ? '✓ connected' : 'not connected';
     head.append(name, stat);
     card.appendChild(head);
     const help = document.createElement('p');
     help.className = 'hint';
-    help.textContent = p.authType === 'local'
-      ? 'Runs locally — no key needed. Make sure Ollama is running with the model pulled.'
-      : (p.requiresExternalCli ? 'Uses an external CLI you must install and log into.' : 'Enter your API key (stored encrypted on this device).');
+    if (p.authType === 'local') help.textContent = 'Runs locally — no key needed. Make sure Ollama is running with the model pulled.';
+    else if (p.authType === 'cli') help.textContent = p.installHint || 'Install this provider’s official CLI and log in, then it uses your own account.';
+    else help.textContent = 'Enter your API key (stored encrypted on this device). It is sent only to ' + p.name + '.';
     card.appendChild(help);
-    if (p.authType !== 'local') {
+    // Billing implication, so users never discover a paid fallback by accident.
+    if (p.billingNote) {
+      const bill = document.createElement('p');
+      bill.className = 'hint provider-billing';
+      bill.textContent = p.billingNote;
+      card.appendChild(bill);
+    }
+    if (p.authType === 'api_key') {
       const row = document.createElement('div');
       row.className = 'provider-cred-row';
       const inp = document.createElement('input');
@@ -449,17 +457,25 @@ async function renderProviders() {
       };
       row.append(inp, saveBtn, msg);
       card.appendChild(row);
+    } else if (p.authType === 'cli') {
+      const cliName = (p.cliBinaries && p.cliBinaries[0]) || 'cli';
+      const login = document.createElement('p');
+      login.className = 'hint';
+      login.textContent = st.installed
+        ? 'Binary found. If a request fails, run "' + cliName + ' login" in a terminal once.'
+        : 'Not found. Install it, then run "' + cliName + ' login" in a terminal (opens your browser).';
+      card.appendChild(login);
     }
     const act = document.createElement('button');
-    act.type = 'button'; act.className = 'ghost'; act.textContent = p.authType === 'local' ? 'Check connection' : 'Test & connect';
+    act.type = 'button'; act.className = 'ghost';
+    act.textContent = p.authType === 'local' ? 'Check connection' : (p.authType === 'cli' ? 'Check CLI' : 'Test & connect');
     act.onclick = async () => {
-      const inp = card.querySelector('.provider-key');
-      const val = inp ? inp.value.trim() : '';
-      act.disabled = true; act.textContent = 'Testing…';
-      const r = await pv.providerConnect(p.id, val);
-      act.disabled = false; act.textContent = p.authType === 'local' ? 'Check connection' : 'Test & connect';
-      const m = card.querySelector('.provider-msg');
-      if (m) m.textContent = r.ok ? `✓ connected · ${r.models.length} models` : '✗ ' + (r.error || 'failed');
+      act.disabled = true; act.textContent = 'Checking…';
+      const r = await pv.providerConnect(p.id, '');
+      act.disabled = false; act.textContent = p.authType === 'local' ? 'Check connection' : (p.authType === 'cli' ? 'Check CLI' : 'Test & connect');
+      let m = card.querySelector('.provider-msg');
+      if (!m) { m = document.createElement('span'); m.className = 'provider-msg'; card.appendChild(m); }
+      m.textContent = r.ok ? `✓ ${r.cli ? 'CLI found' : 'connected'} · ${r.models.length} models` : '✗ ' + (r.message || r.error || 'failed');
       renderProviders();
     };
     card.appendChild(act);
