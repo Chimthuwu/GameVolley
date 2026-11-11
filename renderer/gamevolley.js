@@ -19,6 +19,10 @@
   function setView(v) {
     body.classList.toggle('view-game', v === 'game');
     body.classList.toggle('view-volley', v === 'volley');
+    // Visibility is driven entirely by the body.view-game / body.view-volley class.
+    // The .hidden class uses !important, so it must be removed here or #gameRoot
+    // would stay hidden forever despite the view-game grid rule.
+    const gv = $('gameRoot'); if (gv) gv.classList.remove('hidden');
     const g = $('tabGame'), t = $('tabVolley');
     if (g) g.classList.toggle('tab-active', v === 'game');
     if (t) t.classList.toggle('tab-active', v === 'volley');
