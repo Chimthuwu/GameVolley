@@ -10,5 +10,9 @@ contextBridge.exposeInMainWorld('pv', {
   renameRun: inv('runs:rename'), deleteRun: inv('runs:delete'), moveRun: inv('runs:move'),
   projects: inv('projects:list'), renameProject: inv('projects:rename'), deleteProject: inv('projects:delete'),
   githubTokenInfo: inv('github:token:has'), saveGithubToken: inv('github:token:set'), clearGithubToken: inv('github:token:clear'), fetchGithubRepo: inv('github:repo:fetch'),
+  // Multi-provider support
+  providersList: inv('providers:list'), providersStatus: inv('providers:status'),
+  providerCredsHas: inv('provider:creds:has'), providerCredsSave: inv('provider:creds:save'),
+  providerModels: inv('provider:models'), providerConnect: inv('provider:connect'),
   onEvent: (cb) => ipcRenderer.on('run:event', (_e, ev) => cb(ev)),
 });

@@ -1040,3 +1040,16 @@ select option:checked { background: var(--panel-hi); color: #fff; }
 .ctx-brief { font-weight: 600; }
 .ctx-brief input { accent-color: var(--neon-green); }
 button:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* ---- Multi-provider UI (composer + settings) ---- */
+.prov-select { margin-top: 6px; width: 100%; padding: 6px 8px; font-size: 12px; background: rgba(255,255,255,0.03); color: var(--text); border: 1px solid rgba(255,255,255,0.12); border-radius: 6px; }
+label .prov-select { margin-top: 6px; }
+.provider-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; margin-top: 8px; }
+.provider-card { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; padding: 12px 14px; }
+.provider-card-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 4px; }
+.provider-name { font-weight: 700; font-size: 13px; letter-spacing: 0.3px; }
+.provider-status { font-size: 11px; color: var(--dim); }
+.provider-status.ok { color: var(--neon-green); }
+.provider-cred-row { display: flex; gap: 6px; align-items: center; margin: 8px 0 4px; flex-wrap: wrap; }
+.provider-key { flex: 1 1 140px; padding: 6px 8px; font-size: 12px; background: rgba(255,255,255,0.04); color: var(--text); border: 1px solid rgba(255,255,255,0.12); border-radius: 6px; }
+.provider-msg { font-size: 11px; color: var(--dim); }

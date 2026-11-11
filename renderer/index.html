@@ -54,8 +54,8 @@
       </div>
     </div>
     <div class="row">
-      <label>✍ Writer AI <small>writes the prompt</small><input id="author" spellcheck="false"></label>
-      <label>🔍 Reviewer AI <small>picks it apart</small><input id="critic" spellcheck="false"></label>
+      <label>✍ Writer AI <small>writes the prompt</small><input id="author" spellcheck="false"><select id="authorProvider" class="prov-select" title="Provider powering the Writer" aria-label="Writer provider"></select></label>
+      <label>🔍 Reviewer AI <small>picks it apart</small><input id="critic" spellcheck="false"><select id="criticProvider" class="prov-select" title="Provider powering the Reviewer" aria-label="Reviewer provider"></select></label>
 
     </div>
     <datalist id="modelList"></datalist>
@@ -199,9 +199,9 @@
   </div>
   <div class="settings-grid">
     <h3 class="settings-section">Models</h3>
-    <label>✍ Default Writer AI <small>pre-fills each new volley</small><input id="setWriter" class="model-input" spellcheck="false" placeholder="e.g. google/gemma-4-31b-it:free"></label>
-    <label>🔍 Default Reviewer AI <small>pre-fills each new volley</small><input id="setCritic" class="model-input" spellcheck="false" placeholder="e.g. nvidia/nemotron-3.5-super-vl:free"></label>
-    <label>↯ Fallback model <small>auto-used when a chosen model fails (rate-limits, outages). Blank = none</small><input id="setFallback" class="model-input" spellcheck="false" placeholder="same or a cheaper model"></label>
+    <label>✍ Default Writer AI <small>pre-fills each new volley</small><input id="setWriter" class="model-input" spellcheck="false" placeholder="e.g. google/gemma-4-31b-it:free"><select id="setWriterProvider" class="prov-select" title="Provider powering the Writer" aria-label="Default Writer provider"></select></label>
+    <label>🔍 Default Reviewer AI <small>pre-fills each new volley</small><input id="setCritic" class="model-input" spellcheck="false" placeholder="e.g. nvidia/nemotron-3.5-super-vl:free"><select id="setCriticProvider" class="prov-select" title="Provider powering the Reviewer" aria-label="Default Reviewer provider"></select></label>
+    <label>↯ Fallback model <small>auto-used when a chosen model fails (rate-limits, outages). Blank = none</small><input id="setFallback" class="model-input" spellcheck="false" placeholder="same or a cheaper model"><select id="setFallbackProvider" class="prov-select" title="Provider powering the fallback" aria-label="Fallback provider"></select></label>
     <h3 class="settings-section">Review &amp; context</h3>
     <label>🖼 Reviewer sees attachments
       <select id="setImgMode">
@@ -220,6 +220,9 @@
       <p class="hint key-store-where" id="keyStoreWhere">Where this key is stored…</p>
       <p class="hint" id="keyUsageInfo">OpenRouter key usage is available when a key is saved.</p>
     </div>
+    <h3 class="settings-section">Providers</h3>
+    <p class="hint">Connect your own AI accounts so you're not billed through OpenRouter. Each role above can use a different provider. Keys are stored encrypted on this device only — never sent anywhere but the provider you choose.</p>
+    <div id="providerList" class="provider-list"></div>
   </div>
   <div class="row settings-foot">
     <button class="big" id="btnSaveSettings">Save settings</button>

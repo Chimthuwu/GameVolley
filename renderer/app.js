@@ -116,7 +116,9 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !themePa
   $('outputMode').value = store.get('outputMode', 'prompt') === 'deep-plan' ? 'deep-plan' : 'prompt';
   $('idea').value = store.get('idea', '');
   $('auto').checked = store.get('auto', '0') === '1';
-  if (!(await pv.hasKey())) openModal(true);
+  const ap = store.get('authorProvider', 'openrouter');
+  const cp = store.get('criticProvider', 'openrouter');
+  if ((ap === 'openrouter' || cp === 'openrouter') && !(await pv.hasKey())) openModal(true);
   const rows = await pv.models();
   $('modelList').innerHTML = rows.map((r) => `<option value="${r.id}">`).join('');
 })();
@@ -188,6 +190,8 @@ function openSettings() {
       ? `OpenRouter key spend remaining: $${Number(remaining).toFixed(2)}${limit != null && Number.isFinite(Number(limit)) ? ` of $${Number(limit).toFixed(2)}` : ''}.`
       : `OpenRouter key usage: $${Number(d.usage || 0).toFixed(2)} used${d.is_free_tier ? ' · free tier' : ''}.`;
   }).catch(() => { $('keyUsageInfo').textContent = 'Could not load key usage.'; });
+  populateProviderSelects();
+  renderProviders();
   showSettingsPage();
 }
 // Settings is its own page (it was too cramped as a popup): hide the current view, and
@@ -217,6 +221,14 @@ $('btnSaveSettings').onclick = () => {
   // Default Writer/Reviewer models share one source of truth with the composer fields.
   if (o.writer) { store.set('author', o.writer); $('author').value = o.writer; }
   if (o.critic) { store.set('critic', o.critic); $('critic').value = o.critic; }
+  // Persist provider choices and keep the composer selects + model lists in sync.
+  store.set('authorProvider', $('setWriterProvider').value);
+  store.set('criticProvider', $('setCriticProvider').value);
+  store.set('fallbackProvider', $('setFallbackProvider').value);
+  $('authorProvider').value = $('setWriterProvider').value;
+  $('criticProvider').value = $('setCriticProvider').value;
+  applyProviderToField($('author'), $('authorProvider').value);
+  applyProviderToField($('critic'), $('criticProvider').value);
   hideSettingsPage();
   toast('Settings saved.', 4000);
 };
@@ -226,13 +238,15 @@ $('btnEditKey').onclick = () => { hideSettingsPage(); openModal(false); };
 // ---- Model autocomplete: custom, scrollable, badged. The native <input list> dropdown
 // refused to show options while the field already had text in it, and its list can't be
 // reliably scrolled — this replaces it everywhere a model id is picked. ----
-let MODEL_ROWS = [];
-let ALL_MODEL_ROWS = null;
+let MODEL_ROWS = []; // OpenRouter model catalogue (used for pricing/vision hints)
+let MODEL_ROWS_BY_INPUT = new WeakMap(); // per-input model rows (provider-aware)
 async function setupModelAutocomplete(input) {
   const list = document.createElement('div');
   list.className = 'model-ac hidden';
   document.body.appendChild(list);
   let items = [], pickIdx = -1, allModelsMode = false, freshFocus = false;
+  if (!MODEL_ROWS_BY_INPUT.has(input)) MODEL_ROWS_BY_INPUT.set(input, { rows: [], allRows: null });
+  const rowsFor = () => MODEL_ROWS_BY_INPUT.get(input);
 
   const close = () => { list.classList.add('hidden'); pickIdx = -1; };
   const choose = (row) => {
@@ -244,7 +258,7 @@ async function setupModelAutocomplete(input) {
     // Focusing a field that already holds a model id shows the whole list; only actual
     // typing filters it. (Otherwise the field filtered down to its own value and looked empty.)
     const q = freshFocus ? '' : input.value.trim().toLowerCase();
-    const source = allModelsMode && ALL_MODEL_ROWS ? ALL_MODEL_ROWS : MODEL_ROWS;
+    const source = allModelsMode && rowsFor().allRows ? rowsFor().allRows : rowsFor().rows;
     items = source.filter((row) => !q || row.id.toLowerCase().includes(q));
     if (!allModelsMode) items = items.slice(0, 300);
     pickIdx = -1;
@@ -258,7 +272,7 @@ async function setupModelAutocomplete(input) {
       if (allModelsMode) { allModelsMode = false; render(); return; }
       allModelsMode = true;
       more.disabled = true; more.textContent = 'Loading full model catalog…';
-      try { ALL_MODEL_ROWS = (await pv.models({ all: true })) || []; }
+      try { rowsFor().allRows = (await pv.models({ all: true })) || []; }
       catch { allModelsMode = false; toast('Could not load the full model list.', 6000); }
       render();
     });
@@ -315,6 +329,9 @@ async function setupModelAutocomplete(input) {
     else if (e.key === 'Enter' && pickIdx >= 0) { e.preventDefault(); choose(items[pickIdx]); }
     else if (e.key === 'Escape') { e.preventDefault(); close(); }
   });
+  // Initial OpenRouter model rows (provider-aware fields swap this out later).
+  if (!window.__defaultModelRows) window.__defaultModelRows = pv.models().catch(() => []);
+  try { rowsFor().rows = (await window.__defaultModelRows) || []; } catch {}
 }
 (async () => {
   try { MODEL_ROWS = (await pv.models()) || []; } catch {}
@@ -334,6 +351,131 @@ async function setupModelAutocomplete(input) {
   label.appendChild(btn);
 });
 $('critic').addEventListener('input', refreshVisionHints);
+
+// ---- Multi-provider support: connect your own AI accounts; pick a provider per role. ----
+let PROVIDER_LIST = [];
+const PROVIDER_MODEL_CACHE = {};
+const PROVIDER_PAIRS = {
+  author: 'authorProvider', critic: 'criticProvider',
+  setWriter: 'setWriterProvider', setCritic: 'setCriticProvider', setFallback: 'setFallbackProvider',
+};
+
+async function loadProviderModels(id) {
+  if (PROVIDER_MODEL_CACHE[id]) return PROVIDER_MODEL_CACHE[id];
+  try { PROVIDER_MODEL_CACHE[id] = await pv.providerModels(id); } catch { PROVIDER_MODEL_CACHE[id] = []; }
+  return PROVIDER_MODEL_CACHE[id];
+}
+
+async function populateProviderSelects() {
+  if (!PROVIDER_LIST.length) { try { PROVIDER_LIST = (await pv.providersList()) || []; } catch { PROVIDER_LIST = []; } }
+  for (const selId of Object.values(PROVIDER_PAIRS)) {
+    const sel = $(selId);
+    if (!sel || sel.options.length) continue;
+    for (const p of PROVIDER_LIST) {
+      const o = document.createElement('option');
+      o.value = p.id; o.textContent = p.name;
+      sel.appendChild(o);
+    }
+  }
+  const set = (selId, key) => { const sel = $(selId); if (sel) sel.value = store.get(key, 'openrouter'); };
+  set('authorProvider', 'authorProvider'); set('criticProvider', 'criticProvider');
+  set('setWriterProvider', 'authorProvider'); set('setCriticProvider', 'criticProvider'); set('setFallbackProvider', 'fallbackProvider');
+  await applyAllProviderRows();
+}
+
+async function applyProviderToField(input, providerId) {
+  if (!input || !MODEL_ROWS_BY_INPUT.has(input)) return;
+  if (providerId === 'openrouter') {
+    if (!window.__defaultModelRows) window.__defaultModelRows = pv.models().catch(() => []);
+    try { MODEL_ROWS_BY_INPUT.get(input).rows = (await window.__defaultModelRows) || []; } catch {}
+  } else {
+    MODEL_ROWS_BY_INPUT.get(input).rows = await loadProviderModels(providerId);
+  }
+}
+
+async function applyAllProviderRows() {
+  for (const [inputId, selId] of Object.entries(PROVIDER_PAIRS)) {
+    const input = $(inputId), sel = $(selId);
+    if (input && sel) await applyProviderToField(input, sel.value);
+  }
+}
+
+function wireProviderSelect(inputId, selId, storeKey) {
+  const sel = $(selId);
+  if (!sel) return;
+  sel.addEventListener('change', async () => {
+    store.set(storeKey, sel.value);
+    await applyProviderToField($(inputId), sel.value);
+  });
+}
+
+async function renderProviders() {
+  const list = $('providerList');
+  if (!list) return;
+  if (!PROVIDER_LIST.length) { try { PROVIDER_LIST = (await pv.providersList()) || []; } catch { PROVIDER_LIST = []; } }
+  let statuses = {};
+  try { statuses = (await pv.providersStatus()) || {}; } catch {}
+  list.textContent = '';
+  for (const p of PROVIDER_LIST) {
+    const st = statuses[p.id] || {};
+    const card = document.createElement('div');
+    card.className = 'provider-card';
+    const head = document.createElement('div');
+    head.className = 'provider-card-head';
+    const name = document.createElement('span'); name.className = 'provider-name'; name.textContent = p.name;
+    const stat = document.createElement('span');
+    stat.className = 'provider-status' + (st.connected ? ' ok' : '');
+    stat.textContent = st.connected ? '✓ connected' : 'not connected';
+    head.append(name, stat);
+    card.appendChild(head);
+    const help = document.createElement('p');
+    help.className = 'hint';
+    help.textContent = p.authType === 'local'
+      ? 'Runs locally — no key needed. Make sure Ollama is running with the model pulled.'
+      : (p.requiresExternalCli ? 'Uses an external CLI you must install and log into.' : 'Enter your API key (stored encrypted on this device).');
+    card.appendChild(help);
+    if (p.authType !== 'local') {
+      const row = document.createElement('div');
+      row.className = 'provider-cred-row';
+      const inp = document.createElement('input');
+      inp.type = 'password'; inp.placeholder = 'API key'; inp.className = 'provider-key'; inp.dataset.prov = p.id;
+      const saveBtn = document.createElement('button');
+      saveBtn.type = 'button'; saveBtn.className = 'ghost'; saveBtn.textContent = 'Save';
+      const msg = document.createElement('span'); msg.className = 'provider-msg'; msg.dataset.prov = p.id;
+      saveBtn.onclick = async () => {
+        const r = await pv.providerCredsSave(p.id, inp.value.trim());
+        msg.textContent = r.present ? `Saved ${r.masked}` : 'Cleared';
+        renderProviders();
+      };
+      row.append(inp, saveBtn, msg);
+      card.appendChild(row);
+    }
+    const act = document.createElement('button');
+    act.type = 'button'; act.className = 'ghost'; act.textContent = p.authType === 'local' ? 'Check connection' : 'Test & connect';
+    act.onclick = async () => {
+      const inp = card.querySelector('.provider-key');
+      const val = inp ? inp.value.trim() : '';
+      act.disabled = true; act.textContent = 'Testing…';
+      const r = await pv.providerConnect(p.id, val);
+      act.disabled = false; act.textContent = p.authType === 'local' ? 'Check connection' : 'Test & connect';
+      const m = card.querySelector('.provider-msg');
+      if (m) m.textContent = r.ok ? `✓ connected · ${r.models.length} models` : '✗ ' + (r.error || 'failed');
+      renderProviders();
+    };
+    card.appendChild(act);
+    list.appendChild(card);
+  }
+}
+
+// Wire provider selects once, on load. Settings selectors share the composer's stored
+// provider preference (Writer/Reviewer/Fallback) so they stay in sync.
+const PROVIDER_STORE_KEY = {
+  author: 'authorProvider', critic: 'criticProvider',
+  setWriter: 'authorProvider', setCritic: 'criticProvider', setFallback: 'fallbackProvider',
+};
+for (const [inputId, selId] of Object.entries(PROVIDER_PAIRS)) {
+  wireProviderSelect(inputId, selId, PROVIDER_STORE_KEY[inputId]);
+}
 
 // Pulls the last N finished prompts (finals) from history for the run's reference context.
 async function collectRecentContext(n) {
@@ -366,8 +508,14 @@ let demoRunning = false;
 async function composeCfgFromComposer() {
   const idea = $('idea').value.trim();
   if (!idea) { toast('Type your idea first 🙂'); $('idea').focus(); return null; }
-  if (!(await pv.hasKey())) { openModal(true); return null; }
+  const authorProv = $('authorProvider').value || 'openrouter';
+  const criticProv = $('criticProvider').value || 'openrouter';
+  const needOpenRouter = authorProv === 'openrouter' || criticProv === 'openrouter';
+  if (needOpenRouter && !(await pv.hasKey())) { openModal(true); return null; }
   const cfg = { idea, author: $('author').value.trim(), critic: $('critic').value.trim(), rounds: +$('rounds').value || 3, auto: $('auto').checked };
+  cfg.authorProvider = authorProv;
+  cfg.criticProvider = criticProv;
+  cfg.fallbackProvider = store.get('fallbackProvider', '');
   cfg.outputMode = $('outputMode').value === 'deep-plan' ? 'deep-plan' : 'prompt';
   store.set('outputMode', cfg.outputMode);
   if (!cfg.author || !cfg.critic) { toast('Pick a model for both AIs.'); return null; }
@@ -504,6 +652,7 @@ $('btnDelPair').onclick = () => {
   $('pairHelp').textContent = `Deleted “${key}”.`;
 };
 refreshPairSelect();
+populateProviderSelects();
 
 // ---- Presets: save/load a whole composer state (idea + models + settings knobs) ----
 const PRESETS_KEY = 'vpPresets';
@@ -760,7 +909,7 @@ async function runUtility(kind, instruction = '') {
   if (!model.isFree && !confirm(`This ${kind} helper will make an extra API call using ${model.id} (estimated from catalog pricing). Continue?`)) return;
   show('utilityOutput'); $('utilityTitle').textContent = `${kind} · ${model.isFree ? 'FREE model' : model.id} · working…`; $('utilityText').textContent = '';
   try {
-    const result = await pv.utility({ kind, model: model.id, prompt: $('final').value, instruction: String(instruction || '').slice(0, 800) });
+    const result = await pv.utility({ kind, model: model.id, prompt: $('final').value, instruction: String(instruction || '').slice(0, 800), provider: $('authorProvider')?.value || 'openrouter' });
     $('utilityTitle').textContent = `${kind} · ${result.usage ? `${result.usage.total_tokens || '?'} tokens` : 'usage unavailable'} · ${(result.elapsedMs / 1000).toFixed(1)}s`;
     $('utilityText').textContent = result.text || '(empty response)';
   } catch (e) { $('utilityTitle').textContent = `${kind} failed`; $('utilityText').textContent = e.message || String(e); }

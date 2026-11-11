@@ -2,6 +2,7 @@ const { app, BrowserWindow, ipcMain, safeStorage, shell, clipboard } = require('
 const fs = require('fs');
 const path = require('path');
 const runsStore = require('./lib/runs-store.js');
+const providerModule = require('./lib/providers.js');
 
 const API = 'https://openrouter.ai/api/v1';
 const keyFile = () => path.join(app.getPath('userData'), 'key.bin');
@@ -93,6 +94,22 @@ function saveGithubToken(token) {
   fs.mkdirSync(path.dirname(githubTokenFile()), { recursive: true });
   fs.writeFileSync(githubTokenFile(), safeStorage.encryptString(value));
   return { ok: true, persisted: true };
+}
+
+// ---- per-provider credentials (encrypted, kept out of the renderer) ----
+const providerDataDir = () => path.join(app.getPath('userData'), 'providers');
+const provCredFile = (id) => path.join(providerDataDir(), `${id}.bin`);
+function loadProvCred(id) {
+  try {
+    const buf = fs.readFileSync(provCredFile(id));
+    return safeStorage.isEncryptionAvailable() ? safeStorage.decryptString(buf) : buf.toString('utf8');
+  } catch { return ''; }
+}
+function saveProvCred(id, value) {
+  const v = String(value || '').trim();
+  if (!v) { try { fs.unlinkSync(provCredFile(id)); } catch {} return; }
+  fs.mkdirSync(providerDataDir(), { recursive: true });
+  fs.writeFileSync(provCredFile(id), safeStorage.isEncryptionAvailable() ? safeStorage.encryptString(v) : Buffer.from(v));
 }
 
 async function fetchGithubRepository(owner, repo, token) {
@@ -195,6 +212,32 @@ ipcMain.handle('github:token:set', async (_e, token) => {
 });
 ipcMain.handle('github:token:clear', () => { saveGithubToken(''); return true; });
 ipcMain.handle('github:repo:fetch', (_e, owner, repo) => fetchGithubRepository(String(owner || ''), String(repo || ''), loadGithubToken()));
+
+// ---- multi-provider IPC ----
+ipcMain.handle('providers:list', () =>
+  providerModule.getAllProviders().map((p) => ({ id: p.id, name: p.name, authType: p.authType, requiresExternalCli: p.requiresExternalCli }))
+);
+ipcMain.handle('providers:status', async () => providerModule.getProviderStatuses());
+ipcMain.handle('provider:creds:has', (_e, id) => {
+  const cred = loadProvCred(id);
+  return { present: !!cred, masked: cred ? '••••' + cred.slice(-4) : '' };
+});
+ipcMain.handle('provider:creds:save', (_e, id, value) => {
+  saveProvCred(id, value);
+  const cred = loadProvCred(id);
+  return { present: !!cred, masked: cred ? '••••' + cred.slice(-4) : '' };
+});
+ipcMain.handle('provider:models', async (_e, id) => providerModule.getProvider(id).getModels());
+ipcMain.handle('provider:connect', async (_e, id, value) => {
+  if (value !== undefined && value !== null) saveProvCred(id, value);
+  try {
+    const models = await providerModule.getProvider(id).getModels();
+    return { ok: true, models };
+  } catch (e) {
+    return { ok: false, error: e.message || String(e) };
+  }
+});
+
 ipcMain.handle('key:test', async (_e, k) => {
   const pasted = String(k || '').trim();
   const key = pasted || loadKey();
@@ -246,6 +289,14 @@ function modelSupportsVision(raw, id) {
   const m = raw.find((x) => x.id === id);
   if (!m) return null;
   return !!m.architecture?.input_modalities?.includes?.('image');
+}
+
+// Provider-aware vision check: OpenRouter consults its model catalogue; other providers
+// report their own capabilities.
+function visionFor(providerId, model, raw) {
+  if (providerId === 'openrouter') return modelSupportsVision(raw, model);
+  const cap = providerModule.getProvider(providerId).getCapabilities(model);
+  return cap.supportsVision === null ? null : cap.supportsVision;
 }
 ipcMain.handle('models:list', async (_e, options = {}) => {
   const data = await getModelsRaw();
@@ -474,8 +525,6 @@ const verdictOf = (t) => {
 };
 
 ipcMain.handle('utility:call', async (_e, cfg) => {
-  const key = loadKey();
-  if (!key) throw new Error('No API key yet. Open Settings and paste it.');
   const allowed = new Set(['testdrive', 'annotate', 'variant']);
   if (!cfg || !allowed.has(cfg.kind) || typeof cfg.prompt !== 'string' || cfg.prompt.length > 200000) throw new Error('Invalid utility request.');
   const model = String(cfg.model || '').slice(0, 200);
@@ -491,23 +540,39 @@ ipcMain.handle('utility:call', async (_e, cfg) => {
     : cfg.kind === 'annotate'
       ? 'Explain the intent of each major section of the supplied prompt in concise inline annotations. Preserve the original section wording and add a one-line rationale after each section. Output only the annotated prompt.'
       : 'Create a meaningfully different but equally viable alternative to the supplied prompt. Preserve the user goal and constraints. Output only the full alternative prompt.';
+  const provId = cfg.provider || 'openrouter';
+  const provider = providerModule.getProvider(provId);
+  const st = await provider.getStatus();
+  if (!st.connected) throw new Error(`Provider "${provider.name}" is not connected. Open Settings and add credentials for it.`);
   const startedAt = Date.now();
-  const res = await fetch(`${API}/chat/completions`, {
-    method: 'POST', headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', 'X-Title': 'VolleyPrompt' },
-    body: JSON.stringify({ model, stream: false, messages: [{ role: 'system', content: system }, { role: 'user', content: userContent }] }),
+  let text = '';
+  await provider.chat({
+    model, system,
+    messages: [{ role: 'user', content: userContent }],
+    signal: undefined,
+    onDelta: (d) => { text += d; },
+    onUsage: () => {},
   });
-  if (!res.ok) throw new Error(friendly(res.status, await res.text().catch(() => '')));
-  const data = await res.json();
-  const text = data.choices?.[0]?.message?.content;
   if (!text) throw new Error('The model returned nothing. Try a different model.');
-  return { text, usage: data.usage || null, elapsedMs: Date.now() - startedAt };
+  return { text, usage: null, elapsedMs: Date.now() - startedAt };
 });
 
 ipcMain.handle('run:start', async (_e, cfg) => {
   if (current) return;
-  const key = loadKey();
   const send = (ev) => win && !win.isDestroyed() && win.webContents.send('run:event', ev);
-  if (!key) return send({ type: 'error', message: 'No API key yet. Open Settings and paste it.' });
+  // Each role maps to a provider; default to OpenRouter so existing setups keep working.
+  const providersByRole = {
+    author: cfg.authorProvider || 'openrouter',
+    critic: cfg.criticProvider || 'openrouter',
+    fallback: cfg.fallbackProvider || ((cfg.fallback || '').trim() ? 'openrouter' : ''),
+  };
+  const needed = new Set([providersByRole.author, providersByRole.critic]);
+  if (providersByRole.fallback) needed.add(providersByRole.fallback);
+  for (const id of needed) {
+    const p = providerModule.getProvider(id);
+    const st = await p.getStatus();
+    if (!st.connected) return send({ type: 'error', message: `Provider "${p.name}" is not connected. Open Settings and add credentials for it.` });
+  }
   const { idea } = cfg;
   // Mutable for the whole run: the renderer can swap either model mid-volley (run:models),
   // which applies to the next call — or, with retry, restarts the request in flight.
@@ -525,14 +590,14 @@ ipcMain.handle('run:start', async (_e, cfg) => {
   let reviewImageMode = 'none';
   if (images.length) {
     const raw = await getModelsRaw();
-    const writerVision = modelSupportsVision(raw, runModels.author);
+    const writerVision = visionFor(providersByRole.author, runModels.author, raw);
     if (writerVision !== true) {
       return send({
         type: 'error',
         message: `The Writer model (${runModels.author}) ${writerVision === null ? "has unknown image support" : "doesn't support image inputs"}. Pick a vision-capable Writer, or remove the image attachments.`,
       });
     }
-    const criticVision = modelSupportsVision(raw, runModels.critic);
+    const criticVision = visionFor(providersByRole.critic, runModels.critic, raw);
     const mode = cfg.imgMode || 'auto';
     if (mode === 'skip') {
       reviewImageMode = 'none';
@@ -585,9 +650,11 @@ ipcMain.handle('run:start', async (_e, cfg) => {
     const panel = role === 'Writer' ? 'author' : 'critic';
     const pick = () => (role === 'Writer' ? runModels.author : runModels.critic);
     const model = pick();
+    const provId = role === 'Writer' ? providersByRole.author : providersByRole.critic;
+    const provider = providerModule.getProvider(provId);
     try {
-      return await stream(key, model, system, messages, ctl.signal, onDelta, (u) => recordMetric(model, u),
-        (abort) => { if (current) current.callAbort = abort; });
+      const callRes = await provider.chat({ model, system, messages, signal: ctl.signal, onDelta, onUsage: (u) => recordMetric(model, u), onCtl: (abort) => { if (current) current.callAbort = abort; } });
+      return callRes.text;
     } catch (e) {
       if (ctl.signal.aborted) throw e;
       // "Retry round with these models": the in-flight request was aborted on purpose, and the
@@ -602,8 +669,9 @@ ipcMain.handle('run:start', async (_e, cfg) => {
       if (!fallbackModel || fallbackModel === model) throw e;
       send({ type: 'notice', message: `${role} model ${model} failed (${e.message}) — retrying on fallback ${fallbackModel}.` });
       send({ type: 'panel', role: panel, r }); // clear the partial panel for the retry
-      return stream(key, fallbackModel, system, messages, ctl.signal, onDelta, (u) => recordMetric(fallbackModel, u),
-        (abort) => { if (current) current.callAbort = abort; });
+      const fallbackProv = providerModule.getProvider(providersByRole.fallback);
+      const callRes = await fallbackProv.chat({ model: fallbackModel, system, messages, signal: ctl.signal, onDelta, onUsage: (u) => recordMetric(fallbackModel, u), onCtl: (abort) => { if (current) current.callAbort = abort; } });
+      return callRes.text;
     }
   };
   const stamp = new Date().toISOString().replace(/[:T]/g, '-').slice(0, 19);
@@ -765,3 +833,14 @@ ipcMain.handle('run:models', (_e, next) => {
   return { ok: true, retry, models: { ...current.models } };
 });
 ipcMain.handle('run:stop', () => { if (current) { current.ctl.abort(); current.resolveNotes?.(null); } });
+
+// ---- initialise the multi-provider module, wiring it to OpenRouter's existing helpers ----
+providerModule.init({
+  stream,
+  loadKey,
+  getModelsRaw,
+  getModelsCache: () => modelsRawCache,
+  loadProvCred,
+  saveProvCred,
+  IDLE_MS,
+});

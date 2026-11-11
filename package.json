@@ -52,6 +52,7 @@
   "devDependencies": {
     "electron": "^33.0.0",
     "electron-builder": "^25.1.8",
+    "jsdom": "^25.0.0",
     "png-to-ico": "^2.1.8",
     "sharp": "^0.33.5",
     "wrangler": "^4.0.0"
