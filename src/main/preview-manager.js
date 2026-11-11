@@ -47,13 +47,30 @@ const MIME = {
 // or absolute paths (e.g. "/etc/passwd" or "C:\windows\...").
 function safeJoin(root, urlPath) {
   const decoded = decodeURIComponent(urlPath.split('?')[0].split('#')[0]);
-  const rel = decoded.replace(/^\/+/, '');
-  // A leading slash means the client asked for an absolute path — refuse it.
-  if (decoded !== rel) return null;
+  if (decoded.includes('\0')) return null; // null-byte tricks
+  // A URL path ALWAYS starts with "/" — that is not an absolute filesystem path.
+  // Strip it, then treat backslashes as separators so Windows absolute paths
+  // ("C:\windows", "\\server\share") resolve out of root and get refused below.
+  const rel = decoded.replace(/^\/+/, '').replace(/\\/g, '/');
   const target = path.resolve(root, rel || 'index.html');
   const r = path.relative(root, target);
   if (r.startsWith('..') || path.isAbsolute(r)) return null;
   return target;
+}
+
+// Pure helper: is this project-relative path sensitive/forbidden? Blocks secrets
+// (.env*, keys, certificates), ALL hidden files/dirs (.git, .gamevolley, ...), and
+// node_modules (never needed by a served game; removes a big attack surface).
+function isBlockedPath(relPath) {
+  const norm = String(relPath).replace(/\\/g, '/');
+  for (const seg of norm.split('/')) {
+    if (!seg) continue;
+    if (seg.startsWith('.')) return true; // .env, .env.local, .git, .gamevolley, .secret, ...
+    if (/^id_(rsa|ed25519|ecdsa|dsa)/i.test(seg)) return true; // ssh private keys
+    if (/\.(pem|key|p12|pfx|pkipass|crt|cer|jks|keystore)$/i.test(seg)) return true; // certs/keystores
+    if (seg === 'node_modules') return true;
+  }
+  return false;
 }
 
 class PreviewManager {
@@ -94,6 +111,14 @@ class PreviewManager {
     else if (this.window && this.window.addChildView) this.window.addChildView(view);
 
     const wc = view.webContents;
+    // Navigation containment: the preview may only ever browse the project server it
+    // was loaded from. External navigation is blocked and reported, not followed.
+    wc.setWindowOpenHandler(() => ({ action: 'deny' }));
+    wc.on('will-navigate', (e, url) => {
+      if (this._allowedOrigin && String(url).startsWith(this._allowedOrigin)) return;
+      e.preventDefault();
+      this._onEvent({ type: 'preview:error', message: 'Preview blocked navigation outside the project server.', url });
+    });
     wc.on('did-fail-load', (_e, code, desc, url) => this._onEvent({ type: 'preview:error', code, message: desc, url }));
     wc.on('did-finish-load', () => this._onEvent({ type: 'preview:ready' }));
     wc.on('console-message', (_e, level, message) => {
@@ -122,16 +147,26 @@ class PreviewManager {
   _startStaticServer(rootDir) {
     return new Promise((resolve, reject) => {
       const server = http.createServer(async (req, res) => {
+        // Decode + normalize FIRST, then validate the relative path before touching disk.
+        const decoded = decodeURIComponent((req.url || '/').split('?')[0].split('#')[0]);
+        const rel = decoded.replace(/^\/+/, '').replace(/\\/g, '/') || 'index.html';
+        if (isBlockedPath(rel)) { res.writeHead(403); return res.end('Forbidden'); }
         const target = safeJoin(rootDir, req.url || '/');
         if (!target) { res.writeHead(403); return res.end('Forbidden'); }
         try {
-          const stat = await fsp.stat(target);
+          // Symlink containment: the REAL path of everything we serve must stay inside
+          // the REAL project root (defeats symlink escapes the lexical check can't see).
+          const [realRoot, realTarget] = await Promise.all([fsp.realpath(rootDir), fsp.realpath(target)]);
+          if (realTarget !== realRoot && !realTarget.startsWith(realRoot + path.sep)) {
+            res.writeHead(403); return res.end('Forbidden');
+          }
+          const stat = await fsp.stat(realTarget);
           if (stat.isDirectory()) {
-            const idx = path.join(target, 'index.html');
+            const idx = path.join(realTarget, 'index.html');
             if (fs.existsSync(idx)) return this._serveFile(idx, req, res);
             res.writeHead(404); return res.end('Not found');
           }
-          this._serveFile(target, req, res);
+          this._serveFile(realTarget, req, res);
         } catch {
           res.writeHead(404); res.end('Not found');
         }
@@ -179,6 +214,7 @@ class PreviewManager {
       this._staticRoot = projectPath;
     }
     this._onEvent({ type: 'preview:load', entry, url });
+    try { this._allowedOrigin = new URL(url).origin; } catch { this._allowedOrigin = null; }
     try {
       await view.webContents.loadURL(url);
     } catch (e) {
@@ -207,4 +243,5 @@ class PreviewManager {
 
 module.exports = PreviewManager;
 module.exports.safeJoin = safeJoin;
+module.exports.isBlockedPath = isBlockedPath;
 module.exports.MIME = MIME;

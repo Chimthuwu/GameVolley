@@ -9,8 +9,9 @@ const os = require('node:os');
 const PreviewManager = require('../src/main/preview-manager.js');
 
 class FakeWC {
-  constructor() { this.events = {}; this.bounds = null; this.url = null; this.reloaded = false; }
+  constructor() { this.events = {}; this.bounds = null; this.url = null; this.reloaded = false; this.navBlocked = false; }
   on(ev, cb) { (this.events[ev] = this.events[ev] || []).push(cb); }
+  setWindowOpenHandler(cb) { this._openHandler = cb; }
   setBounds(b) { this.bounds = b; }
   async loadURL(u) { this.url = u; return Promise.resolve(); }
   reload() { this.reloaded = true; }
@@ -21,7 +22,10 @@ const fakeElectron = { WebContentsView: FakeView };
 const fakeWin = { contentView: { addChildView() {}, removeChildView() {} }, getContentSize: () => [1200, 800] };
 
 test('safeJoin refuses path traversal', () => {
-  assert.strictEqual(PreviewManager.safeJoin('/proj', '/etc/passwd'), null);
+  // A URL's leading "/" is NOT an absolute filesystem path (it resolves inside
+  // root). Genuinely absolute paths (drive letters, UNC, traversal) are refused.
+  assert.strictEqual(PreviewManager.safeJoin('/proj', '/etc/passwd'), path.resolve('/proj', 'etc/passwd'));
+  assert.strictEqual(PreviewManager.safeJoin('/proj', 'C:\\etc\\passwd'), null);
   assert.strictEqual(PreviewManager.safeJoin('/proj', '../outside'), null);
   assert.strictEqual(PreviewManager.safeJoin('/proj', 'game/index.html'), path.resolve('/proj', 'game/index.html'));
 });
