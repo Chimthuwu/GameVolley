@@ -7,52 +7,66 @@ on:
       - 'v*'
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+
   build-windows:
+    needs: test
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
       - run: npm ci
       - run: npm run dist
       - uses: actions/upload-artifact@v4
         with:
-          name: VolleyPrompt-Windows-Setup
+          name: GameVolley-Windows-Setup
           path: dist/*.exe
           if-no-files-found: error
 
   build-macos:
+    needs: test
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
       - run: npm ci
       - run: npm run icons
       - run: npx electron-builder --mac --publish never
       - uses: actions/upload-artifact@v4
         with:
-          name: VolleyPrompt-macOS
+          name: GameVolley-macOS
           path: dist/*.dmg
           if-no-files-found: error
 
   build-linux:
+    needs: test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
       - run: npm ci
       - run: npm run icons
       - run: npx electron-builder --linux --publish never
       - uses: actions/upload-artifact@v4
         with:
-          name: VolleyPrompt-Linux
+          name: GameVolley-Linux
           path: dist/*.AppImage
           if-no-files-found: error
