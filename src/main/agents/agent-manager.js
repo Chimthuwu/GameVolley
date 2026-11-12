@@ -6,18 +6,38 @@
 //
 // Workflow:
 //   USER IDEA -> CREATIVE DIRECTOR (brief) -> CODING AGENT (build) -> PREVIEW
-//            -> CRITIC (review) -> [fixes] -> CODING AGENT -> (repeat, max N rounds)
-//            -> VERIFY -> FINAL RESULT
+//            -> VALIDATION GATE (entry/syntax/build/runtime) -> CRITIC (review)
+//            -> [fixes] -> CODING AGENT -> (repeat, max N rounds) -> FINAL RESULT
+//
+// Completion policy (v2):
+//   - `completed: true` requires BOTH a passing validation gate AND a Critic
+//     SHIP/CLOSE with zero HIGH/MED findings. The Critic alone can NEVER
+//     complete a build.
+//   - Developer crash / unusable output -> restore the last known-good
+//     checkpoint, surface the error.
+//   - Validation failure -> KEEP the work, feed the validation errors into the
+//     next round (rolling back then asking the Developer to "fix" files that
+//     no longer exist would be self-defeating).
+//   - Final round still failing -> restore the last known-good state and
+//     return completed:false.
 //
 // Roles are independently configurable: the Director and Critic are chat providers
 // (reusing lib/providers.js); the Developer is a coding-agent adapter (Codex /
-// Claude Code / Gemini CLI) that edits files in the selected project.
+// Claude Code / Gemini CLI) or a provider-backed ProviderDevAgent.
 //
-// All loops are BOUNDED (default 3 correction rounds). User follow-up instructions
-// take priority over agent preferences (the Director is skipped on Improve/Fix so it
-// cannot override an explicit user request).
+// All loops are BOUNDED and clamped (clampRounds).
+
+const { validateProject } = require('../lib/validate-project.js');
 
 const DEFAULT_MAX_ROUNDS = 3;
+const MAX_ROUNDS_CAP = 5;
+
+// Clamp an untrusted round count: NaN/garbage/<=0 -> default, hard cap above.
+function clampRounds(v) {
+  const n = Math.floor(Number(v));
+  if (!Number.isFinite(n) || n < 1) return DEFAULT_MAX_ROUNDS;
+  return Math.min(n, MAX_ROUNDS_CAP);
+}
 
 // Auto model pick (no explicit model): prefer a FREE model when the provider's list
 // marks one, so a blank field never silently bills the user. Falls back to the
@@ -51,6 +71,8 @@ where SEVERITY is one of HIGH, MED, or LOW:
   MED  = a quality, polish, feel, or completeness issue that should be fixed.
   LOW  = a minor nitpick.
 
+Judge against these engine-quality criteria where relevant: a clamped-dt requestAnimationFrame main loop; explicit persistent game states (never stalling on empty waves or failed spawns); shape-appropriate collision with pickup areas matching what is drawn; balanced ctx.save()/restore(); gameplay constants in one CONFIG; complete files (no truncation).
+
 Do NOT invent problems you cannot support. At the very end, add exactly one line:
 VERDICT: <SHIP | CLOSE | NEEDS-WORK>`;
 
@@ -71,7 +93,9 @@ class AgentManager {
   // providers: the lib/providers module (or a test stub) exposing getProvider(id).
   // agents: map of { codex: CodingAgent, claude: CodingAgent, gemini: CodingAgent }.
   // projectManager: ProjectManager instance.
-  // hooks: { loadPreview({projectPath, entry}), onCheckpoint(info) }.
+  // hooks: { loadPreview({projectPath, entry}), onCheckpoint(info), getPreview() }.
+  //   getPreview() returns the embedded PreviewManager (or null) so the
+  //   validation gate can watch preview:ready / preview:console / preview:fail.
   constructor({ providers, agents, projectManager, hooks = {} }) {
     this.providers = providers;
     this.agents = agents || {};
@@ -86,7 +110,6 @@ class AgentManager {
     const models = await provider.getModels().catch(() => []);
     const model = this._directorModel || pickAutoModel(models);
     this._emit(onEvent, { type: 'agent:status', role: 'director', status: 'working', message: 'Writing the development brief…' });
-    let brief = '';
     const res = await provider.chat({
       model,
       system: CREATIVE_DIRECTOR_SYSTEM,
@@ -94,16 +117,14 @@ class AgentManager {
       signal,
       onDelta: (d) => this._emit(onEvent, { type: 'agent:output', role: 'director', text: d }),
     });
-    brief = res.text;
     this._emit(onEvent, { type: 'agent:status', role: 'director', status: 'done', message: 'Development brief ready.' });
-    return brief;
+    return res.text;
   }
 
   async _review(brief, { signal, onEvent }) {
     this._emit(onEvent, { type: 'agent:status', role: 'critic', status: 'working', message: 'Reviewing the build…' });
     const summary = await this.projectManager.getProjectSummary().catch(() => ({ name: '', entry: null, tree: [], manifest: '' }));
     const ctx = `DEVELOPMENT BRIEF:\n${brief}\n\nPROJECT SUMMARY:\n${JSON.stringify({ entry: summary.entry, tree: summary.tree.slice(0, 60) }, null, 2)}\n\nKEY FILES:\n${summary.manifest.slice(0, 6000)}`;
-    let text = '';
     const provider = this.providers.getProvider(this._criticId);
     const models = await provider.getModels().catch(() => []);
     const model = this._criticModel || pickAutoModel(models);
@@ -114,8 +135,7 @@ class AgentManager {
       signal,
       onDelta: (d) => this._emit(onEvent, { type: 'agent:output', role: 'critic', text: d }),
     });
-    text = res.text;
-    const { findings, verdict } = parseReview(text);
+    const { findings, verdict } = parseReview(res.text);
     for (const f of findings) this._emit(onEvent, { type: 'review:result', severity: f.severity, message: f.message });
     this._emit(onEvent, { type: 'agent:status', role: 'critic', status: 'done', message: `Review complete — ${findings.length} finding(s), verdict ${verdict || 'NONE'}.` });
     return { findings, verdict };
@@ -141,7 +161,9 @@ class AgentManager {
     return agent;
   }
 
-  async _develop(taskPrompt, { developerId, developerModel, signal, onEvent, label }) {
+  // Run the developer. `restore` (optional) is handed to the agent so a mid-write
+  // staged-commit failure puts the project back BEFORE this throws.
+  async _develop(taskPrompt, { developerId, developerModel, signal, onEvent, label, restore }) {
     const agent = this._developerAgent(developerId);
     // Snapshot for change detection.
     const before = await this.projectManager.snapshotHashes().catch(() => ({}));
@@ -157,8 +179,10 @@ class AgentManager {
         signal,
         onEvent: (ev) => {
           if (ev.type === 'output') this._emit(onEvent, { type: 'agent:output', role: 'developer', text: ev.text });
+          else if (ev.type === 'stage' || ev.type === 'error') this._emit(onEvent, Object.assign({}, ev, { role: 'developer' }));
           else this._emit(onEvent, { type: 'agent:diagnostic', role: 'developer', text: ev.text });
         },
+        restore,
       });
     } catch (e) {
       this._emit(onEvent, { type: 'agent:status', role: 'developer', status: 'error', message: e.message });
@@ -182,49 +206,121 @@ class AgentManager {
     return entry;
   }
 
+  // The validation gate: execution-level proof (entry refs, syntax, optional
+  // build, preview runtime health) before the Critic is ever consulted.
+  async _validate({ onEvent, entry }) {
+    const preview = this.hooks.getPreview ? this.hooks.getPreview() : null;
+    const entryFile = entry && entry.type === 'file' ? entry.path : 'index.html';
+    return validateProject({
+      root: this.projectManager.active.path,
+      preview,
+      entryFile,
+      emit: (e) => this._emit(onEvent, e),
+    });
+  }
+
+  _safeRestore(cp, onEvent) {
+    if (!cp) return Promise.resolve();
+    return this.projectManager.checkpoint().restore(this.projectManager.active.path, cp.id)
+      .then(() => this._emit(onEvent, { type: 'restored', checkpoint: cp.id, label: cp.label }))
+      .catch(() => {});
+  }
+
+  // Shared bounded round loop with the completion policy documented at the top.
+  async _runRounds({ buildTask, brief, signal, onEvent, maxRounds }) {
+    const rounds = clampRounds(maxRounds);
+    const root = this.projectManager.active.path;
+    let lastGood = await this.projectManager.checkpoint().create(root, 'baseline').catch(() => null);
+    let feedback = null;
+    let lastEntry = null;
+    let lastValidation = null;
+    let lastReview = { findings: [], verdict: 'NEEDS-WORK' };
+    let round = 0;
+
+    while (round < rounds) {
+      round++;
+      this._emit(onEvent, { type: 'progress', phase: 'develop', round, maxRounds: rounds });
+      const fixNote = feedback
+        ? `\n\nIMPORTANT — the previous pass did not fully succeed. Fix ALL of these before anything else:\n${feedback}`
+        : '';
+      const restoreTo = async () => this._safeRestore(lastGood, onEvent);
+
+      try {
+        await this._develop(buildTask + fixNote, {
+          developerId: this._developerId,
+          developerModel: this._developerModel,
+          signal,
+          onEvent,
+          label: round > 1 ? `Fixing issues (round ${round})…` : 'Building the game…',
+          restore: restoreTo,
+        });
+      } catch (err) {
+        // Crash or unusable output -> put the project back, then surface the error.
+        await restoreTo();
+        this._emit(onEvent, { type: 'agent:status', role: 'developer', status: 'error', message: `Rolled back to "${lastGood ? lastGood.label : 'baseline'}": ${err.message}` });
+        throw err;
+      }
+
+      // Reload the preview FIRST so validation never reads stale state.
+      lastEntry = await this._reloadPreview(onEvent);
+      this._emit(onEvent, { type: 'progress', phase: 'validate', round, maxRounds: rounds });
+      const validation = await this._validate({ onEvent, entry: lastEntry });
+      lastValidation = validation;
+
+      if (!validation.ok) {
+        this._emit(onEvent, { type: 'validation:failed', round, checks: validation.checks, blocking: validation.blocking });
+        // Keep the work; feed the validation errors into the next round.
+        feedback = `VALIDATION FAILED — fix these execution-level problems:\n${validation.blocking.map((b) => `- ${b}`).join('\n')}`;
+        continue;
+      }
+
+      // This state is execution-verified good; it becomes the rollback point.
+      lastGood = await this.projectManager.checkpoint().create(root, `round-${round}-valid`).catch(() => lastGood);
+
+      this._emit(onEvent, { type: 'progress', phase: 'review', round, maxRounds: rounds });
+      lastReview = await this._review(brief, { signal, onEvent });
+      const highOrMed = lastReview.findings.filter((f) => f.severity !== 'LOW');
+      const passed = (lastReview.verdict === 'SHIP' || lastReview.verdict === 'CLOSE') && highOrMed.length === 0;
+      if (passed) {
+        this._emit(onEvent, { type: 'stage', stage: 'success' });
+        return { completed: true, round, rounds, entry: lastEntry, review: lastReview, validation };
+      }
+      feedback = `Review findings to address:\n${lastReview.findings.map((f) => `- [${f.severity}] ${f.message}`).join('\n')}`;
+    }
+
+    // Out of rounds and not complete: restore the last known-good state.
+    await this._safeRestore(lastGood, onEvent);
+    return {
+      completed: false,
+      round,
+      rounds,
+      entry: lastEntry,
+      review: lastReview,
+      validation: lastValidation,
+      reason: 'Did not pass validation and review within the round limit',
+      blocking: lastValidation ? lastValidation.blocking : [],
+    };
+  }
+
   // Public: create a brand-new game from an idea.
   async createGame({ idea, projectPath, roles, signal, onEvent, maxRounds = DEFAULT_MAX_ROUNDS }) {
     this._setRoles(roles);
     await this.projectManager.openProject(projectPath);
-    this._emit(onEvent, { type: 'progress', phase: 'brief', round: 0, maxRounds });
+    this._emit(onEvent, { type: 'progress', phase: 'brief', round: 0, maxRounds: clampRounds(maxRounds) });
     const brief = await this._brief(idea, { signal, onEvent });
 
     const task = `Implement the game described by this development brief as a real, PLAYABLE project in the current working directory. Create every file in the FILE PLAN. The result must run by opening index.html (or the project's dev server). Prioritise: it must actually run without errors, be fun, and match the brief. Brief:\n\n${brief}`;
 
-    let lastEntry = null;
-    let round = 0;
-    let lastReview = { findings: [], verdict: 'NEEDS-WORK' };
-    while (round < maxRounds) {
-      round++;
-      this._emit(onEvent, { type: 'progress', phase: 'develop', round, maxRounds });
-      const fixNote = round > 1
-        ? `\n\nIMPORTANT — address these review findings from the previous pass:\n${lastReview.findings.map((f) => `- [${f.severity}] ${f.message}`).join('\n')}`
-        : '';
-      await this._develop(task + fixNote, { developerId: this._developerId, developerModel: this._developerModel, signal, onEvent, label: round > 1 ? `Fixing issues (round ${round})…` : 'Building the game…' });
-      lastEntry = await this._reloadPreview(onEvent);
-      this._emit(onEvent, { type: 'progress', phase: 'review', round, maxRounds });
-      lastReview = await this._review(brief, { signal, onEvent });
-      // A missing/malformed verdict (null) is NOT a pass: only an explicit SHIP/CLOSE
-      // with zero HIGH/MED findings completes the loop.
-      const highOrMed = lastReview.findings.filter((f) => f.severity !== 'LOW');
-      const passed = (lastReview.verdict === 'SHIP' || lastReview.verdict === 'CLOSE') && highOrMed.length === 0;
-      if (passed) break;
-    }
-
-    const passed = (lastReview.verdict === 'SHIP' || lastReview.verdict === 'CLOSE')
-      && lastReview.findings.filter((f) => f.severity !== 'LOW').length === 0;
-    this._emit(onEvent, { type: 'game:done', result: {
-      // Honest reporting: nothing has been EXECUTION-verified yet (no verification
-      // stage exists), so LOW findings are "remaining notes", not verified fixes.
-      verifiedFixes: [],
-      unverifiedImprovements: lastReview.findings.filter((f) => f.severity === 'LOW').map((f) => f.message),
-      knownIssues: lastReview.findings.filter((f) => f.severity === 'HIGH' || f.severity === 'MED').map((f) => f.message),
-      verdict: lastReview.verdict || 'NONE',
-      completed: passed,
-      entry: lastEntry,
-      rounds: round,
-    } });
-    return { brief, entry: lastEntry, review: lastReview, rounds: round, completed: passed };
+    const out = await this._runRounds({ buildTask: task, brief, signal, onEvent, maxRounds });
+    this._emit(onEvent, { type: 'game:done', result: this._result(out) });
+    return {
+      brief,
+      entry: out.entry,
+      review: out.review,
+      rounds: out.round,
+      completed: out.completed,
+      validation: out.validation,
+    };
   }
 
   // Public: follow-up improvement on an existing project. User instruction wins.
@@ -243,35 +339,24 @@ class AgentManager {
     const summary = await this.projectManager.getProjectSummary().catch(() => ({ name: '', entry: null, tree: [], manifest: '' }));
     const baseTask = `You are improving an EXISTING game project in the current working directory. Follow the user's instruction literally — do not change the game's core concept unless asked. Respect the existing code style and files.\n\nEXISTING PROJECT:\n${JSON.stringify({ entry: summary.entry, tree: summary.tree.slice(0, 80) }, null, 2)}\n\nUSER INSTRUCTION:\n${instruction}`;
 
-    let lastEntry = null;
-    let round = 0;
-    let lastReview = { findings: [], verdict: 'NEEDS-WORK' };
-    while (round < maxRounds) {
-      round++;
-      this._emit(onEvent, { type: 'progress', phase: 'develop', round, maxRounds });
-      const fixNote = round > 1
-        ? `\n\nAlso address these review findings:\n${lastReview.findings.map((f) => `- [${f.severity}] ${f.message}`).join('\n')}`
-        : '';
-      await this._develop(baseTask + fixNote, { developerId: this._developerId, developerModel: this._developerModel, signal, onEvent, label: round > 1 ? `Re-applying fixes (round ${round})…` : label });
-      lastEntry = await this._reloadPreview(onEvent);
-      this._emit(onEvent, { type: 'progress', phase: 'review', round, maxRounds });
-      lastReview = await this._review('', { signal, onEvent });
-      const actionable = lastReview.findings.filter((f) => f.severity !== 'LOW');
-      const passed = (lastReview.verdict === 'SHIP' || lastReview.verdict === 'CLOSE') && actionable.length === 0;
-      if (passed) break;
-    }
-    const passed = (lastReview.verdict === 'SHIP' || lastReview.verdict === 'CLOSE')
-      && lastReview.findings.filter((f) => f.severity !== 'LOW').length === 0;
-    this._emit(onEvent, { type: 'game:done', result: {
-      verifiedFixes: [],
-      unverifiedImprovements: lastReview.findings.filter((f) => f.severity === 'LOW').map((f) => f.message),
-      knownIssues: lastReview.findings.filter((f) => f.severity === 'HIGH' || f.severity === 'MED').map((f) => f.message),
-      verdict: lastReview.verdict || 'NONE',
-      completed: passed,
-      entry: lastEntry,
-      rounds: round,
-    } });
-    return { entry: lastEntry, review: lastReview, rounds: round, completed: passed };
+    const out = await this._runRounds({ buildTask: baseTask, brief: '', signal, onEvent, maxRounds });
+    this._emit(onEvent, { type: 'game:done', result: this._result(out) });
+    return { entry: out.entry, review: out.review, rounds: out.round, completed: out.completed, validation: out.validation };
+  }
+
+  _result(out) {
+    return {
+      // completed:true is only reachable through a passing validation gate.
+      verifiedFixes: out.completed && out.validation ? out.validation.checks : [],
+      validation: out.validation ? { ok: out.validation.ok, checks: out.validation.checks, warnings: out.validation.warnings } : null,
+      unverifiedImprovements: (out.review.findings || []).filter((f) => f.severity === 'LOW').map((f) => f.message),
+      knownIssues: (out.review.findings || []).filter((f) => f.severity === 'HIGH' || f.severity === 'MED').map((f) => f.message),
+      verdict: out.review.verdict || 'NONE',
+      completed: out.completed,
+      entry: out.entry,
+      rounds: out.round,
+      reason: out.reason,
+    };
   }
 
   _setRoles(roles = {}) {
@@ -289,5 +374,6 @@ class AgentManager {
 
 module.exports = AgentManager;
 module.exports.parseReview = parseReview;
+module.exports.clampRounds = clampRounds;
 module.exports.CREATIVE_DIRECTOR_SYSTEM = CREATIVE_DIRECTOR_SYSTEM;
 module.exports.CRITIC_SYSTEM = CRITIC_SYSTEM;

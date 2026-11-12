@@ -4,7 +4,7 @@
 
 **Describe a silly game idea. Watch multiple AI agents design, build, review and improve a real, playable game in your workspace — then play it right inside the app.**
 
-[![Download for Windows](https://img.shields.io/badge/Download-Windows%20.exe-blue?style=for-the-badge&logo=windows)](https://github.com/Chimthuwu/Volley-Prompt/releases/latest)
+[![Download for Windows](https://img.shields.io/badge/Download-Windows%20.exe-blue?style=for-the-badge&logo=windows)](https://github.com/Chimthuwu/GameVolley/releases/latest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-purple?style=for-the-badge)](LICENSE)
 
 </div>
@@ -20,6 +20,7 @@ USER IDEA
    → Creative Director   (designs a concise brief)
    → Coding Agent        (edits real files in the selected project)
    → Game Preview        (runs the game in an isolated WebContentsView)
+   → Validation Gate     (entry refs, syntax, optional build, runtime health)
    → Critic / QA         (reviews, returns actionable fixes)
    → Coding Agent again  (fixes — up to 3 rounds)
    → Playable result
@@ -32,7 +33,7 @@ You don't write technical prompts or coordinate agents by hand. **Follow-up inst
 - **Real local workspace** — projects live on disk; the agent edits actual files you can open in any editor. No prompt text pretending to be code.
 - **Real coding agents** — drives installed CLIs (OpenAI Codex, Claude Code, Google Gemini CLI) in the selected project directory. If a CLI is missing, you get a clear install hint instead of fake progress.
 - **Embedded playable preview** — an isolated Electron `WebContentsView` renders the genuine game; reload and fullscreen are wired.
-- **Checkpoints** — automatic, reversible snapshots (Git stash when available, copy-fallback otherwise) before significant changes, so a bad iteration can't destroy a working build.
+- **Checkpoints** — automatic, reversible snapshots (file-copy + hash manifest, stored outside the project) before and between rounds; failed iterations roll back and validation failures feed the next round.
 - **Honest status** — a live agent-activity panel shows what each role is doing; a working **Stop** button cancels the active process and aborts outstanding AI requests without losing completed work.
 - **Provider choice** — pick different providers/models for the Creative Director and Critic; pick your installed coding agent for the Developer.
 - **Live theming, images & project folders, encrypted keys** — carried over from VolleyPrompt.
@@ -43,11 +44,11 @@ You don't write technical prompts or coordinate agents by hand. **Follow-up inst
    - `npm i -g @openai/codex`  (Codex)
    - `npm i -g @anthropic-ai/claude-code`  (Claude Code)
    - `npm i -g @google/gemini-cli`  (Gemini)
-2. Grab the installer from [Releases](https://github.com/Chimthuwu/Volley-Prompt/releases/latest), or run from source:
+2. Grab the installer from [Releases](https://github.com/Chimthuwu/GameVolley/releases/latest), or run from source:
 
 ```bash
-git clone https://github.com/Chimthuwu/Volley-Prompt.git
-cd Volley-Prompt
+git clone https://github.com/Chimthuwu/GameVolley.git
+cd GameVolley
 npm install
 npm start        # launch GameVolley
 npm run dist     # build a Windows installer
@@ -59,7 +60,7 @@ npm run dist     # build a Windows installer
 ## Notes & limitations
 
 - The game-build loop needs a configured AI provider and at least one coding-agent CLI installed and authenticated. With neither, GameVolley reports the gap honestly rather than faking a result.
-- The acceptance flow (idea → playable game) is genuinely wired end-to-end; running it with real providers requires your credentials and CLIs (not present in CI/tests, which use mocks).
+- The build pipeline is wired end-to-end with an execution-level validation gate (entry references, JS syntax, optional build, embedded-preview runtime health) plus a Critic review — but end-to-end runs need your real credentials/CLIs and are not exercised in CI, which uses mocks. If a project defines `npm run build`, that script runs with your user privileges (timeout + output cap are damage limiters, not a sandbox).
 
 ## Privacy
 

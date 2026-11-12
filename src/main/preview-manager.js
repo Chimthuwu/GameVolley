@@ -83,6 +83,25 @@ class PreviewManager {
     this.staticServer = null;
     this.staticPort = null;
     this.devProcess = null;
+    this._listeners = new Map(); // type -> Set<cb>, used by the validation gate
+  }
+
+  // Typed listener registry (EventEmitter-ish) so the validation stage can watch
+  // preview:ready / preview:console / preview:fail without the app's global sink.
+  on(type, cb) {
+    if (!this._listeners.has(type)) this._listeners.set(type, new Set());
+    this._listeners.get(type).add(cb);
+  }
+
+  off(type, cb) {
+    const s = this._listeners.get(type);
+    if (s) s.delete(cb);
+  }
+
+  _emit(ev) {
+    if (this._onEvent) this._onEvent(ev);
+    const s = this._listeners.get(ev.type);
+    if (s) for (const cb of [...s]) { try { cb(ev); } catch {} }
   }
 
   attach(window) { this.window = window; }
@@ -117,12 +136,15 @@ class PreviewManager {
     wc.on('will-navigate', (e, url) => {
       if (this._allowedOrigin && String(url).startsWith(this._allowedOrigin)) return;
       e.preventDefault();
-      this._onEvent({ type: 'preview:error', message: 'Preview blocked navigation outside the project server.', url });
+      this._emit({ type: 'preview:error', message: 'Preview blocked navigation outside the project server.', url });
     });
-    wc.on('did-fail-load', (_e, code, desc, url) => this._onEvent({ type: 'preview:error', code, message: desc, url }));
-    wc.on('did-finish-load', () => this._onEvent({ type: 'preview:ready' }));
+    wc.on('did-fail-load', (_e, code, desc, url) => {
+      this._emit({ type: 'preview:fail', code, message: desc, url });
+      this._emit({ type: 'preview:error', code, message: desc, url });
+    });
+    wc.on('did-finish-load', () => this._emit({ type: 'preview:ready' }));
     wc.on('console-message', (_e, level, message) => {
-      if (level >= 2) this._onEvent({ type: 'preview:console', level, message });
+      if (level >= 2) this._emit({ type: 'preview:console', level, message });
     });
 
     this.view = view;
@@ -193,9 +215,9 @@ class PreviewManager {
   _startDevServer(projectPath, entry) {
     try {
       this.devProcess = spawn('npm', ['run', 'dev'], { cwd: projectPath, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
-      this.devProcess.stderr.on('data', (d) => this._onEvent({ type: 'preview:diagnostic', text: d.toString() }));
+      this.devProcess.stderr.on('data', (d) => this._emit({ type: 'preview:diagnostic', text: d.toString() }));
     } catch (e) {
-      this._onEvent({ type: 'preview:error', message: `Could not start dev server: ${e.message}` });
+      this._emit({ type: 'preview:error', message: `Could not start dev server: ${e.message}` });
     }
   }
 
@@ -207,18 +229,20 @@ class PreviewManager {
       this._startDevServer(projectPath, entry);
       url = entry.url;
     } else {
+      // Close the previous round's static server so we don't leak one per round.
+      if (this.staticServer) { try { this.staticServer.close(); } catch {} this.staticServer = null; this.staticPort = null; }
       const port = await this._startStaticServer(projectPath);
       const base = `http://127.0.0.1:${port}`;
       // entry.path like "index.html" or "src/index.html"
       url = `${base}/${String(entry.path).replace(/^\/+/, '')}`;
       this._staticRoot = projectPath;
     }
-    this._onEvent({ type: 'preview:load', entry, url });
+    this._emit({ type: 'preview:load', entry, url });
     try { this._allowedOrigin = new URL(url).origin; } catch { this._allowedOrigin = null; }
     try {
       await view.webContents.loadURL(url);
     } catch (e) {
-      this._onEvent({ type: 'preview:error', message: String(e.message || e) });
+      this._emit({ type: 'preview:error', message: String(e.message || e) });
     }
     return url;
   }

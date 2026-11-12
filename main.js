@@ -871,6 +871,10 @@ function sendGame(ev) { if (win && !win.isDestroyed()) win.webContents.send('gam
 function setupGameVolley() {
   if (projectManager) return; // idempotent across secondary window lifecycle
   projectManager = new ProjectManager((ev) => sendGame(ev));
+  // Checkpoints live OUTSIDE the project (userData), never in the working tree.
+  try {
+    projectManager.checkpoints.setSnapshotRoot(path.join(app.getPath('userData'), 'checkpoints'));
+  } catch {}
   previewManager = new PreviewManager({ window: win, onEvent: (ev) => sendGame(ev) });
   gameAgents = { codex: new CodexAgent(), claude: new ClaudeCodeAgent(), gemini: new GeminiAgent() };
   agentManager = new AgentManager({
@@ -882,6 +886,8 @@ function setupGameVolley() {
       loadPreview: ({ projectPath, entry }) =>
         previewManager.loadProject({ projectPath, entry })
           .catch((e) => sendGame({ type: 'preview:error', message: String(e.message || e) })),
+      // The validation gate watches the embedded preview for runtime health.
+      getPreview: () => previewManager,
     },
   });
 }
