@@ -1,19 +1,28 @@
 // checkpoint-manager.js
 //
-// Provides reversible snapshots of a project so a failed AI iteration can never
-// destroy a previously working version.
+// Reversible snapshots of a project so a failed AI iteration can never destroy
+// a previously working version.
 //
-// Two strategies:
-//   1. Git project  -> `git stash push -u` (creates a stash, never touches the
-//      user's commit history or branch). Restore = `git stash apply <ref>`.
-//   2. No Git       -> copy the tree (excluding heavy/ignored dirs) into
-//      `.gamevolley/checkpoints/<id>/`. Restore = copy back.
+// Design (v2 — replaces the git-stash approach):
+// - NEVER touches the user's working tree state (the old `git stash push -u`
+//   MOVED uncommitted work out of the tree mid-build; a crash between stash and
+//   restore left the project empty of the user's edits).
+// - NEVER relies on git (a stash only holds tracked+untracked diffs, and the
+//   copy fallback never deleted files created after the checkpoint).
+// - Snapshot = full file copy + sha256 manifest, stored OUTSIDE the project
+//   (default: os.tmpdir()/gamevolley-checkpoints; the app sets userData).
+// - Restore = (1) delete files that did not exist at checkpoint time,
+//   (2) copy back anything missing or changed (hash-verified).
 //
-// Neither path force-pushes, rewrites history, or deletes the user's own commits.
+// Known limitation: empty directories are not tracked.
+// Backwards compatibility: checkpoints made by the old copy-based manager
+// under <project>/.gamevolley/checkpoints are no longer listed (different
+// storage location); they remain on disk untouched.
 
 const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const path = require('node:path');
+const os = require('node:os');
 const crypto = require('node:crypto');
 
 const IGNORED_DIRS = new Set([
@@ -21,120 +30,101 @@ const IGNORED_DIRS = new Set([
   'vendor', 'venv', '.venv', '__pycache__', '.idea', '.vscode', '.gamevolley',
 ]);
 
-function isGit(projectPath) {
-  try { return fs.statSync(path.join(projectPath, '.git')).isDirectory(); }
-  catch { return false; }
-}
-
-function execGit(projectPath, args) {
-  const { execFileSync } = require('node:child_process');
-  return execFileSync('git', args, {
-    cwd: projectPath,
-    encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
-}
-
-function copyDir(src, dest, onFile) {
-  fs.mkdirSync(dest, { recursive: true });
-  for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
-    const name = entry.name;
-    if (IGNORED_DIRS.has(name) || name.startsWith('.')) {
-      if (name !== '.git') continue;
-    }
-    const s = path.join(src, name);
-    const d = path.join(dest, name);
-    if (entry.isDirectory()) copyDir(s, d, onFile);
-    else if (entry.isFile()) { fs.copyFileSync(s, d); onFile && onFile(name); }
+async function walk(root, dir = root, out = []) {
+  let entries;
+  try { entries = await fsp.readdir(dir, { withFileTypes: true }); } catch { return out; }
+  for (const e of entries) {
+    if (IGNORED_DIRS.has(e.name)) continue;
+    const abs = path.join(dir, e.name);
+    if (e.isDirectory()) await walk(root, abs, out);
+    else if (e.isFile()) out.push(path.relative(root, abs)); // symlinks skipped on purpose
   }
+  return out;
 }
 
-function removeDir(dir) {
-  if (!fs.existsSync(dir)) return;
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    const p = path.join(dir, entry.name);
-    if (entry.isDirectory()) removeDir(p);
-    else fs.unlinkSync(p);
-  }
-  fs.rmdirSync(dir);
+async function sha(file) {
+  try {
+    return crypto.createHash('sha256').update(await fsp.readFile(file)).digest('hex');
+  } catch { return null; }
 }
 
 class CheckpointManager {
-  constructor() {
-    this.namespace = '.gamevolley/checkpoints';
+  constructor({ snapshotRoot = null } = {}) {
+    this.snapshotRoot = snapshotRoot || path.join(os.tmpdir(), 'gamevolley-checkpoints');
+    // Legacy flag kept so callers probing git-ness still get a boolean.
+    this.legacyGitProbe = false;
   }
 
-  isGit(projectPath) { return isGit(projectPath); }
+  setSnapshotRoot(dir) { this.snapshotRoot = dir; }
 
-  // Create a checkpoint. Returns { id, kind: 'git'|'copy', ref, label, createdAt }.
+  // All checkpoints for one project live under snapshotRoot/<projectHash>/<id>.
+  _projectDir(projectPath) {
+    const h = crypto.createHash('sha256').update(path.resolve(projectPath)).digest('hex').slice(0, 16);
+    return path.join(this.snapshotRoot, h);
+  }
+
+  isGit() { return false; } // v2 never uses git
+
+  // Create a checkpoint. Returns { id, kind: 'copy', ref, label, createdAt, manifest }.
   async create(projectPath, label = 'checkpoint') {
     const id = crypto.randomBytes(4).toString('hex');
     const createdAt = Date.now();
-    if (isGit(projectPath)) {
-      try {
-        const out = execGit(projectPath, ['stash', 'push', '-u', '-m', `gamevolley:${id}:${label}`]);
-        const ref = (out.match(/stash@\{\d+\}/) || ['stash@{0}'])[0];
-        return { id, kind: 'git', ref, label, createdAt };
-      } catch (e) {
-        // Git may refuse with "No local changes to save" — treat as an empty checkpoint.
-        if (/no local changes/i.test(String(e.stderr || e.message || ''))) {
-          return { id, kind: 'git', ref: null, label, createdAt, empty: true };
-        }
-        throw e;
-      }
+    const dir = path.join(this._projectDir(projectPath), id);
+    const manifest = {};
+    for (const rel of await walk(projectPath)) {
+      const src = path.join(projectPath, rel);
+      const dst = path.join(dir, 'files', rel);
+      await fsp.mkdir(path.dirname(dst), { recursive: true });
+      await fsp.copyFile(src, dst);
+      manifest[rel] = await sha(src);
     }
-    const dest = path.join(projectPath, this.namespace, id);
-    copyDir(projectPath, dest);
-    return { id, kind: 'copy', ref: id, label, createdAt };
+    await fsp.mkdir(dir, { recursive: true });
+    await fsp.writeFile(path.join(dir, 'manifest.json'), JSON.stringify({ label, createdAt, manifest }));
+    return { id, kind: 'copy', ref: id, label, createdAt, manifest };
   }
 
   async list(projectPath) {
-    if (isGit(projectPath)) {
+    const dir = this._projectDir(projectPath);
+    let ids;
+    try { ids = await fsp.readdir(dir); } catch { return []; }
+    const out = [];
+    for (const id of ids) {
       try {
-        const raw = execGit(projectPath, ['stash', 'list']);
-        return raw.split('\n').filter(Boolean).map((line) => {
-          const m = line.match(/^(stash@\{\d+\}):\s*On\s+\S+:\s*gamevolley:(\w+):(.*)$/);
-          if (!m) return null;
-          return { id: m[1], kind: 'git', ref: line.match(/^(stash@\{\d+\})/)[1], label: m[2] };
-        }).filter(Boolean);
-      } catch { return []; }
+        const meta = JSON.parse(await fsp.readFile(path.join(dir, id, 'manifest.json'), 'utf8'));
+        out.push({ id, kind: 'copy', ref: id, label: meta.label || id, createdAt: meta.createdAt });
+      } catch {}
     }
-    const dir = path.join(projectPath, this.namespace);
-    if (!fs.existsSync(dir)) return [];
-    return fs.readdirSync(dir)
-      .filter((n) => fs.statSync(path.join(dir, n)).isDirectory())
-      .map((id) => ({ id, kind: 'copy', ref: id, label: id }));
+    return out.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  }
+
+  // Load the full checkpoint record (with manifest) by id.
+  async get(projectPath, id) {
+    const dir = path.join(this._projectDir(projectPath), String(id));
+    const meta = JSON.parse(await fsp.readFile(path.join(dir, 'manifest.json'), 'utf8'));
+    return { id, kind: 'copy', ref: id, label: meta.label, createdAt: meta.createdAt, manifest: meta.manifest, dir };
   }
 
   async restore(projectPath, id) {
-    if (isGit(projectPath)) {
-      const list = await this.list(projectPath);
-      const found = list.find((c) => c.id === id);
-      if (!found || !found.ref) throw new Error('Checkpoint not found in git stash.');
-      try {
-        execGit(projectPath, ['stash', 'apply', found.ref]);
-      } catch (e) {
-        if (!/already up to date|no changes|nothing to commit/i.test(String(e.stderr || e.message || ''))) throw e;
-      }
-      return { ok: true, kind: 'git' };
+    const cp = await this.get(projectPath, id);
+    // 1. Delete files that did not exist at checkpoint time.
+    for (const rel of await walk(projectPath)) {
+      if (!(rel in cp.manifest)) await fsp.rm(path.join(projectPath, rel), { force: true });
     }
-    const src = path.join(projectPath, this.namespace, id);
-    if (!fs.existsSync(src)) throw new Error('Checkpoint folder not found.');
-    copyDir(src, projectPath);
+    // 2. Put back anything missing or changed (hash-verified).
+    for (const [rel, hash] of Object.entries(cp.manifest)) {
+      const abs = path.join(projectPath, rel);
+      const current = await sha(abs);
+      if (current !== hash) {
+        await fsp.mkdir(path.dirname(abs), { recursive: true });
+        await fsp.copyFile(path.join(cp.dir, 'files', rel), abs);
+      }
+    }
     return { ok: true, kind: 'copy' };
   }
 
   async remove(projectPath, id) {
-    if (isGit(projectPath)) {
-      const list = await this.list(projectPath);
-      const found = list.find((c) => c.id === id);
-      if (found && found.ref) {
-        try { execGit(projectPath, ['stash', 'drop', found.ref]); } catch {}
-      }
-      return { ok: true };
-    }
-    const dir = path.join(projectPath, this.namespace, id);
-    removeDir(dir);
+    const dir = path.join(this._projectDir(projectPath), String(id));
+    await fsp.rm(dir, { recursive: true, force: true });
     return { ok: true };
   }
 }
