@@ -5,7 +5,9 @@ const path = require('path');
 const providerModule = require(path.join(__dirname, '..', 'lib', 'providers.js'));
 
 const deps = {
-  stream: async () => ({ text: 'openrouter-text', usage: { prompt_tokens: 1, completion_tokens: 2, cost: 0, elapsedMs: 1 } }),
+  // main.js stream() returns the raw completion STRING (not { text }) — the
+  // mock must mirror that real contract so regressions surface.
+  stream: async () => 'openrouter-text',
   loadKey: () => 'sk-or-test',
   getModelsRaw: async () => ([{ id: 'openai/gpt-4o', pricing: { prompt: '0', completion: '0' }, architecture: { input_modalities: ['text', 'image'] } }]),
   getModelsCache: () => ({ data: [{ id: 'openai/gpt-4o', architecture: { input_modalities: ['text', 'image'] } }] }),

@@ -45,6 +45,15 @@
   window.addEventListener('resize', layoutPreview);
 
   // ---------- activity log ----------
+  // Streaming deltas append into ONE live line per role (closed by the next
+  // non-output event) instead of one log line per token chunk, which turned
+  // the panel into unreadable confetti.
+  let liveLine = null;
+  let liveRole = null;
+  const LIVE_MAX = 4000;
+
+  function closeLiveLine() { liveLine = null; liveRole = null; }
+
   function addActivity(text, cls) {
     const log = $('gvActivity');
     if (!log) return;
@@ -53,6 +62,31 @@
     line.textContent = text;
     log.appendChild(line);
     while (log.children.length > 400) log.removeChild(log.firstChild);
+    log.scrollTop = log.scrollHeight;
+  }
+
+  function appendStreamDelta(role, text) {
+    const log = $('gvActivity');
+    if (!log) return;
+    if (!liveLine || liveRole !== role) {
+      closeLiveLine();
+      liveRole = role;
+      liveLine = document.createElement('div');
+      liveLine.className = 'gv-log-line out gv-stream';
+      const tag = document.createElement('span');
+      tag.className = 'gv-stream-tag';
+      tag.textContent = `${role}: `;
+      const body = document.createElement('span');
+      body.textContent = text;
+      liveLine.appendChild(tag);
+      liveLine.appendChild(body);
+      log.appendChild(liveLine);
+    } else {
+      let body = liveLine.lastChild;
+      if (body.textContent.length > LIVE_MAX) body.textContent = body.textContent.slice(-LIVE_MAX) + '…';
+      else body.textContent += text;
+    }
+    liveLine.scrollIntoView({ block: 'end' });
     log.scrollTop = log.scrollHeight;
   }
   function setStatus(text, cls) {
@@ -296,15 +330,23 @@
     if (!ev || !ev.type) return;
     switch (ev.type) {
       case 'progress':
+        closeLiveLine();
         setStatus(`Phase: ${ev.phase} (round ${ev.round}/${ev.maxRounds})`);
         break;
       case 'agent:status':
+        closeLiveLine();
         addActivity(`${roleLabel(ev.role)}: ${ev.status} — ${ev.message || ''}`, ev.status === 'error' ? 'err' : '');
         break;
       case 'agent:output':
-        addActivity(`  ${ev.role}: ${ev.text}`, 'out');
+        // Token-chunk deltas stream into one live line per role.
+        appendStreamDelta(ev.role, ev.text);
+        break;
+      case 'stage':
+        closeLiveLine();
+        addActivity(`— ${ev.stage}${ev.detail ? ` (${ev.detail})` : ''}`, 'cmd');
         break;
       case 'project:changed':
+        closeLiveLine();
         addActivity(`  ✓ ${ev.operation} ${ev.path}`, 'file');
         break;
       case 'preview:load':
