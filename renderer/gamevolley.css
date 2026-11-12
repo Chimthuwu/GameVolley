@@ -1,12 +1,17 @@
 /* gamevolley.css — GameVolley workspace UI (layer on top of the Volley theme vars) */
 
 /* View switching: GameVolley is the default landing workspace; Volley stays a tab away. */
+/* The frameless titlebar is 34px of in-flow DOM ABOVE #gameRoot. If gameRoot is
+   100vh the document is 34px taller than the window, becomes scrollable, and any
+   programmatic scroll (focus, scrollIntoView, delta floods during builds) scrolls
+   the titlebar out of view — the "top bar vanishes" bug. Never allow it. */
+html, body { overflow: hidden; }
 #gameRoot { display: none; }
 body.view-game #gameRoot {
   display: grid;
   grid-template-columns: 290px 1fr;
   grid-template-rows: 54px minmax(0, 1fr) 210px 156px;
-  height: 100vh; width: 100vw;
+  height: calc(100vh - 34px); width: 100vw;
   gap: 10px; padding: 10px;
   background: var(--bg, #0a0b12);
   box-sizing: border-box;

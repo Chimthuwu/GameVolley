@@ -86,7 +86,8 @@
       if (body.textContent.length > LIVE_MAX) body.textContent = body.textContent.slice(-LIVE_MAX) + '…';
       else body.textContent += text;
     }
-    liveLine.scrollIntoView({ block: 'end' });
+    // Scroll ONLY the log container. scrollIntoView() would also scroll
+    // documentElement (see the vanished-titlebar bug) — never use it here.
     log.scrollTop = log.scrollHeight;
   }
   function setStatus(text, cls) {
