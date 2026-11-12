@@ -5,16 +5,16 @@ Spec: Z:\HERMES\.hermes\attachments\pasted_content_2026-11-11_19-03-37-193_209f5
 ## P0 — critical
 - [ ] 1.1 [DONE a0d9f03] npm ci sync (lockfile missing jsdom deps) + CI: Node 22 deploy, tests gate deploy, keep win/mac/linux builds
 - [ ] 1.2 [DONE this commit] Preview server hardening + HTTP security tests (secrets/hidden/symlink/traversal, keep assets working)
-- [ ] 1.3 Checkpoint rewrite: self-contained snapshot/manifest, stable IDs, full restore incl. deletions
+- [x] 1.3 [DONE 1d874f9] Checkpoint rewrite: file-copy + sha256 manifest, snapshots OUTSIDE project (userData), restore deletes post-checkpoint files + hash-restores; git-stash path removed entirely
 - [ ] 1.4 [DONE this commit] Windows shim process execution (.cmd/.bat via proper spawn, array args, cleanup, no orphans)
-- [ ] 1.5 [DONE earlier commit] False-success: non-zero CLI exit ≠ success; malformed Critic verdict ≠ pass; maxRounds IPC validation
+- [x] 1.5 [DONE earlier commit + e9b7e1c clampRounds] False-success: non-zero CLI exit ≠ success; malformed Critic verdict ≠ pass; maxRounds IPC validation
 
 ## P1 — reliability
 - [ ] 2.1 Immutable project context per build (prevent cross-project writes mid-build)
 - [ ] 2.2 realPath validation in project-manager (symlink escapes on read/write/delete/list/snapshot)
-- [ ] 2.3 Preview lifecycle: one server, readiness checks not fixed delays, dev-server detection, shutdown cleanup
-- [ ] 2.4 Verification stage before Critic; honest verifiedFixes (LOW ≠ verified)
-- [ ] 2.5 provider-dev resilience: deletions, partial-failure keeps checkpoint, reject truncated blocks
+- [x] 2.3 [partial e9b7e1c] loadProject closes the previous static server (leak fixed); on/off listeners + preview:fail added for the validation gate. Remaining: readiness checks vs fixed delays, dev-server detection, app-quit shutdown cleanup
+- [x] 2.4 [DONE e9b7e1c] Verification stage before Critic (validate-project.js: entry refs, syntax, optional build, preview runtime health); completed:true requires gate pass; verifiedFixes comes from validation checks only
+- [x] 2.5 [DONE 1d874f9] provider-dev: strict parser rejects truncated/unbalanced blocks whole; one-shot format recovery w/ diagnostics saved; staged all-or-nothing writes with restore callback
 
 ## P2 — UI/UX
 - [ ] 3.1 Studio layout (explorer/viewport/agent-studio), fix 100vh+34px overflow, fullscreen bounds persist
