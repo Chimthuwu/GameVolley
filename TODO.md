@@ -3,21 +3,21 @@
 Spec: Z:\HERMES\.hermes\attachments\pasted_content_2026-11-11_19-03-37-193_209f53.txt (full text there).
 
 ## P0 — critical
-- [ ] 1.1 [DONE a0d9f03] npm ci sync (lockfile missing jsdom deps) + CI: Node 22 deploy, tests gate deploy, keep win/mac/linux builds
-- [ ] 1.2 [DONE this commit] Preview server hardening + HTTP security tests (secrets/hidden/symlink/traversal, keep assets working)
+- [x] 1.1 [DONE a0d9f03] npm ci sync (lockfile missing jsdom deps) + CI: Node 22 deploy, tests gate deploy, keep win/mac/linux builds
+- [x] 1.2 [DONE this commit] Preview server hardening + HTTP security tests (secrets/hidden/symlink/traversal, keep assets working)
 - [x] 1.3 [DONE 1d874f9] Checkpoint rewrite: file-copy + sha256 manifest, snapshots OUTSIDE project (userData), restore deletes post-checkpoint files + hash-restores; git-stash path removed entirely
-- [ ] 1.4 [DONE this commit] Windows shim process execution (.cmd/.bat via proper spawn, array args, cleanup, no orphans)
+- [x] 1.4 [DONE this commit] Windows shim process execution (.cmd/.bat via proper spawn, array args, cleanup, no orphans)
 - [x] 1.5 [DONE earlier commit + e9b7e1c clampRounds] False-success: non-zero CLI exit ≠ success; malformed Critic verdict ≠ pass; maxRounds IPC validation
 
 ## P1 — reliability
-- [ ] 2.1 Immutable project context per build (prevent cross-project writes mid-build)
-- [ ] 2.2 realPath validation in project-manager (symlink escapes on read/write/delete/list/snapshot)
+- [x] 2.1 [DONE this commit] Immutable project context per build (prevent cross-project writes mid-build)
+- [x] 2.2 [DONE this commit] realPath validation in project-manager (symlink escapes on read/write/delete/list/snapshot)
 - [x] 2.3 [partial e9b7e1c] loadProject closes the previous static server (leak fixed); on/off listeners + preview:fail added for the validation gate. Remaining: readiness checks vs fixed delays, dev-server detection, app-quit shutdown cleanup
 - [x] 2.4 [DONE e9b7e1c] Verification stage before Critic (validate-project.js: entry refs, syntax, optional build, preview runtime health); completed:true requires gate pass; verifiedFixes comes from validation checks only
 - [x] 2.5 [DONE 1d874f9] provider-dev: strict parser rejects truncated/unbalanced blocks whole; one-shot format recovery w/ diagnostics saved; staged all-or-nothing writes with restore callback
 
 ## P2 — UI/UX
-- [ ] 3.1 Studio layout (explorer/viewport/agent-studio), fix 100vh+34px overflow, fullscreen bounds persist
+- [x] 3.1 [DONE this commit] Studio layout (explorer/viewport/agent-studio), fix 100vh+34px overflow, fullscreen bounds persist
 - [ ] 3.2 Agent cards (status, elapsed, expandable output)
 - [ ] 3.3 Changes & Diff panel (real data only)
 - [x] 3.4 partial: auto-pick prefers free (pickAutoModel); explicit auto/prefer-free UI semantics still open
@@ -26,7 +26,7 @@ Spec: Z:\HERMES\.hermes\attachments\pasted_content_2026-11-11_19-03-37-193_209f5
 - [ ] 3.7 Visual polish (reduced-motion, restrained accent)
 
 ## Docs/distribution
-- [ ] README links → Chimthuwu/GameVolley; mac/linux artifact names; STYLING.md; docs reflect reality
+- [x] README links → Chimthuwu/GameVolley; mac/linux artifact names; STYLING.md; docs reflect reality
 
 ## Done
 - [x] Model pickers all roles, prov:<id> AI developer, duplicate-dropdown + unified-list fixes, auto-pick prefers free (2d77775)
