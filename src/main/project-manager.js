@@ -7,7 +7,8 @@
 // and writes are reported so the UI can show what changed.
 //
 // Treats repository content as untrusted DATA, never as instructions or paths
-// that may escape the sandbox.
+// that may escape the sandbox. Symlink escapes are prevented by resolving all
+// paths to their real paths and verifying containment within the real project root.
 
 const fs = require('node:fs/promises');
 const fss = require('node:fs');
@@ -56,6 +57,53 @@ function isExtAllowed(relPath) {
   return ALLOWED_EXT.has(ext);
 }
 
+// Real-path containment check: resolves both root and target to their real
+// paths (following symlinks) and verifies the target is inside the root.
+// This prevents symlink escapes that lexical path checks cannot see.
+// For new files that don't exist yet, resolves the nearest existing ancestor.
+async function resolveWithinRealRoot(realRoot, targetPath) {
+  let realTarget;
+  try {
+    realTarget = await fs.realpath(targetPath);
+  } catch (e) {
+    if (e.code === 'ENOENT') {
+      // Target doesn't exist yet (e.g., new file being created).
+      // Walk up the directory tree to find the nearest existing ancestor.
+      let current = path.dirname(targetPath);
+      while (true) {
+        try {
+          const realParent = await fs.realpath(current);
+          const rel = path.relative(realRoot, realParent);
+          if (rel.startsWith('..') || path.isAbsolute(rel)) {
+            throw new Error(`Path escapes the project directory (symlink escape): ${targetPath}`);
+          }
+          // Return the resolved parent + the remaining relative path
+          const remainder = path.relative(current, targetPath);
+          return path.join(realParent, remainder);
+        } catch (e2) {
+          if (e2.code === 'ENOENT') {
+            const parent = path.dirname(current);
+            if (parent === current) {
+              // Reached filesystem root without finding an existing ancestor.
+              throw new Error(`Path escapes the project directory (symlink escape): ${targetPath}`);
+            }
+            current = parent;
+            continue;
+          }
+          throw e2;
+        }
+      }
+    }
+    throw e;
+  }
+  const rel = path.relative(realRoot, realTarget);
+  if (rel === '' || rel === '.') return realTarget;
+  if (rel.startsWith('..') || path.isAbsolute(rel)) {
+    throw new Error(`Path escapes the project directory (symlink escape): ${targetPath}`);
+  }
+  return realTarget;
+}
+
 class ProjectManager {
   constructor(eventSink) {
     this.active = null;
@@ -65,17 +113,10 @@ class ProjectManager {
   }
 
   // ---- path safety ----
-  resolveProjectPath(relativePath) {
+  async resolveProjectPath(relativePath) {
     if (!this.active) throw new Error('No active project. Open or create one first.');
-    const root = path.resolve(this.active.path);
-    // Normalise and reject anything that escapes the root.
-    const target = path.resolve(root, String(relativePath || ''));
-    const rel = path.relative(root, target);
-    if (rel === '' || rel === '.') return target;
-    if (rel.startsWith('..') || path.isAbsolute(rel)) {
-      throw new Error(`Path escapes the project directory: ${relativePath}`);
-    }
-    return target;
+    const target = path.resolve(this.active.path, String(relativePath || ''));
+    return resolveWithinRealRoot(this.active.realRoot, target);
   }
 
   // ---- open / create ----
@@ -84,7 +125,9 @@ class ProjectManager {
     let stat;
     try { stat = await fs.stat(resolved); } catch { throw new Error(`Cannot open "${projectPath}" — folder not found.`); }
     if (!stat.isDirectory()) throw new Error('Selected project must be a directory.');
-    this.active = { name: path.basename(resolved), path: resolved };
+    // Resolve to real path to defeat symlink escapes at the root level.
+    const realRoot = await fs.realpath(resolved);
+    this.active = { name: path.basename(resolved), path: resolved, realRoot };
     this._emit({ type: 'project:opened', name: this.active.name, path: resolved });
     return this.getActive();
   }
@@ -100,7 +143,8 @@ class ProjectManager {
       createdAt: Date.now(),
       idea,
     }, null, 2), 'utf8');
-    this.active = { name: path.basename(resolved), path: resolved };
+    const realRoot = await fs.realpath(resolved);
+    this.active = { name: path.basename(resolved), path: resolved, realRoot };
     this._emit({ type: 'project:opened', name: this.active.name, path: resolved });
     return this.getActive();
   }
@@ -110,76 +154,82 @@ class ProjectManager {
   }
 
   // ---- tree / read / write ----
-  async listFiles(relativePath = '') {
-    const root = this.resolveProjectPath(relativePath);
-    const out = [];
-    let count = 0;
-    const walk = async (dir, prefix) => {
-      let entries;
-      try { entries = await fs.readdir(dir, { withFileTypes: true }); }
-      catch { return; }
-      for (const e of entries) {
-        if (IGNORED_DIRS.has(e.name) || e.name === '.gamevolley') continue;
-        const rel = prefix ? `${prefix}/${e.name}` : e.name;
-        if (isPathIgnored(rel)) continue;
-        const full = path.join(dir, e.name);
-        if (e.isDirectory()) {
-          out.push({ path: rel, type: 'dir' });
-          if (count < MAX_TREE_FILES) await walk(full, rel);
-        } else if (e.isFile()) {
-          if (!isExtAllowed(rel)) continue;
-          let size = 0;
-          try { size = (await fs.stat(full)).size; } catch {}
-          out.push({ path: rel, type: 'file', size, ext: path.extname(e.name).toLowerCase() });
-          if (++count >= MAX_TREE_FILES) break;
+    async listFiles(relativePath = '') {
+      const root = await this.resolveProjectPath(relativePath);
+      const out = [];
+      let count = 0;
+      const walk = async (dir, prefix) => {
+        let entries;
+        try { entries = await fs.readdir(dir, { withFileTypes: true }); }
+        catch { return; }
+        for (const e of entries) {
+          if (IGNORED_DIRS.has(e.name) || e.name === '.gamevolley') continue;
+          const rel = prefix ? `${prefix}/${e.name}` : e.name;
+          if (isPathIgnored(rel)) continue;
+          const full = path.join(dir, e.name);
+          // Real-path validation for each entry to prevent symlink escapes during traversal.
+          try {
+            await resolveWithinRealRoot(this.active.realRoot, full);
+          } catch {
+            continue; // Skip entries that escape the real root.
+          }
+          if (e.isDirectory()) {
+            out.push({ path: rel, type: 'dir' });
+            if (count < MAX_TREE_FILES) await walk(full, rel);
+          } else if (e.isFile()) {
+            if (!isExtAllowed(rel)) continue;
+            let size = 0;
+            try { size = (await fs.stat(full)).size; } catch {}
+            out.push({ path: rel, type: 'file', size, ext: path.extname(e.name).toLowerCase() });
+            if (++count >= MAX_TREE_FILES) break;
+          }
+        }
+      };
+      await walk(root, '');
+      return out.sort((a, b) => (a.type === b.type ? a.path.localeCompare(b.path) : a.type === 'dir' ? -1 : 1));
+    }
+
+    async readFile(relativePath) {
+      const full = await this.resolveProjectPath(relativePath);
+      let stat;
+      try { stat = await fs.stat(full); } catch { throw new Error(`File not found: ${relativePath}`); }
+      if (stat.isDirectory()) throw new Error(`Path is a directory, not a file: ${relativePath}`);
+      if (stat.size > MAX_FILE_BYTES) {
+        throw new Error(`File too large to read (${Math.round(stat.size / 1024)} KB): ${relativePath}`);
+      }
+      return fs.readFile(full, 'utf8');
+    }
+
+    async writeFile(relativePath, content, { emit = true } = {}) {
+      const full = await this.resolveProjectPath(relativePath);
+      if (isPathIgnored(relativePath)) throw new Error(`Refusing to write protected path: ${relativePath}`);
+      if (!isExtAllowed(relativePath)) {
+        // Allow writing the gamevolley metadata file specifically.
+        if (!relativePath.startsWith('.gamevolley/')) {
+          throw new Error(`File type not allowed for writing: ${relativePath}`);
         }
       }
-    };
-    await walk(root, '');
-    return out.sort((a, b) => (a.type === b.type ? a.path.localeCompare(b.path) : a.type === 'dir' ? -1 : 1));
-  }
-
-  async readFile(relativePath) {
-    const full = this.resolveProjectPath(relativePath);
-    let stat;
-    try { stat = await fs.stat(full); } catch { throw new Error(`File not found: ${relativePath}`); }
-    if (stat.isDirectory()) throw new Error(`Path is a directory, not a file: ${relativePath}`);
-    if (stat.size > MAX_FILE_BYTES) {
-      throw new Error(`File too large to read (${Math.round(stat.size / 1024)} KB): ${relativePath}`);
+      await fs.mkdir(path.dirname(full), { recursive: true });
+      await fs.writeFile(full, content, 'utf8');
+      if (emit) this._emit({ type: 'project:changed', path: relativePath, operation: 'modified' });
+      return { path: relativePath, bytes: Buffer.byteLength(content, 'utf8') };
     }
-    return fs.readFile(full, 'utf8');
-  }
 
-  async writeFile(relativePath, content, { emit = true } = {}) {
-    const full = this.resolveProjectPath(relativePath);
-    if (isPathIgnored(relativePath)) throw new Error(`Refusing to write protected path: ${relativePath}`);
-    if (!isExtAllowed(relativePath)) {
-      // Allow writing the gamevolley metadata file specifically.
-      if (!relativePath.startsWith('.gamevolley/')) {
-        throw new Error(`File type not allowed for writing: ${relativePath}`);
-      }
+    async deleteFile(relativePath, { explicit = false } = {}) {
+      if (!explicit) throw new Error('Delete requires explicit confirmation (explicit: true).');
+      const full = await this.resolveProjectPath(relativePath);
+      if (isPathIgnored(relativePath)) throw new Error(`Refusing to delete protected path: ${relativePath}`);
+      try { await fs.unlink(full); }
+      catch (e) { throw new Error(`Could not delete ${relativePath}: ${e.message}`); }
+      this._emit({ type: 'project:changed', path: relativePath, operation: 'deleted' });
+      return true;
     }
-    await fs.mkdir(path.dirname(full), { recursive: true });
-    await fs.writeFile(full, content, 'utf8');
-    if (emit) this._emit({ type: 'project:changed', path: relativePath, operation: 'modified' });
-    return { path: relativePath, bytes: Buffer.byteLength(content, 'utf8') };
-  }
 
-  async deleteFile(relativePath, { explicit = false } = {}) {
-    if (!explicit) throw new Error('Delete requires explicit confirmation (explicit: true).');
-    const full = this.resolveProjectPath(relativePath);
-    if (isPathIgnored(relativePath)) throw new Error(`Refusing to delete protected path: ${relativePath}`);
-    try { await fs.unlink(full); }
-    catch (e) { throw new Error(`Could not delete ${relativePath}: ${e.message}`); }
-    this._emit({ type: 'project:changed', path: relativePath, operation: 'deleted' });
-    return true;
-  }
-
-  async createDir(relativePath) {
-    const full = this.resolveProjectPath(relativePath);
-    await fs.mkdir(full, { recursive: true });
-    return true;
-  }
+    async createDir(relativePath) {
+      const full = await this.resolveProjectPath(relativePath);
+      await fs.mkdir(full, { recursive: true });
+      return true;
+    }
 
   // ---- entry-point & project understanding ----
   async detectEntryPoint() {
@@ -229,29 +279,35 @@ class ProjectManager {
   }
 
   // Snapshot file contents/hashes for change detection around an agent run.
-  async snapshotHashes() {
-    const root = this.active.path;
-    const map = {};
-    const walk = async (dir, prefix) => {
-      let entries;
-      try { entries = await fs.readdir(dir, { withFileTypes: true }); } catch { return; }
-      for (const e of entries) {
-        if (IGNORED_DIRS.has(e.name) || e.name === '.gamevolley') continue;
-        const rel = prefix ? `${prefix}/${e.name}` : e.name;
-        if (isPathIgnored(rel)) continue;
-        const full = path.join(dir, e.name);
-        if (e.isDirectory()) await walk(full, rel);
-        else if (e.isFile() && isExtAllowed(rel)) {
+    async snapshotHashes() {
+      const root = this.active.path;
+      const map = {};
+      const walk = async (dir, prefix) => {
+        let entries;
+        try { entries = await fs.readdir(dir, { withFileTypes: true }); } catch { return; }
+        for (const e of entries) {
+          if (IGNORED_DIRS.has(e.name) || e.name === '.gamevolley') continue;
+          const rel = prefix ? `${prefix}/${e.name}` : e.name;
+          if (isPathIgnored(rel)) continue;
+          const full = path.join(dir, e.name);
+          // Real-path validation to prevent symlink escapes during snapshot.
           try {
-            const buf = await fs.readFile(full);
-            map[rel] = crypto.createHash('sha1').update(buf).digest('hex').slice(0, 12);
-          } catch {}
+            await resolveWithinRealRoot(this.active.realRoot, full);
+          } catch {
+            continue; // Skip entries that escape the real root.
+          }
+          if (e.isDirectory()) await walk(full, rel);
+          else if (e.isFile() && isExtAllowed(rel)) {
+            try {
+              const buf = await fs.readFile(full);
+              map[rel] = crypto.createHash('sha1').update(buf).digest('hex').slice(0, 12);
+            } catch {}
+          }
         }
-      }
-    };
-    await walk(root, '');
-    return map;
-  }
+      };
+      await walk(root, '');
+      return map;
+    }
 
   diffSnapshots(before, after) {
     const changed = [];

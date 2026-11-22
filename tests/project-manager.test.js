@@ -48,8 +48,8 @@ test('path traversal is rejected', async () => {
   const dir = await tmp();
   const pm = makePm();
   await pm.openProject(dir);
-  assert.throws(() => pm.resolveProjectPath('../escape.txt'), /escapes the project/);
-  assert.throws(() => pm.resolveProjectPath('../../etc/passwd'), /escapes the project/);
+  await assert.rejects(() => pm.resolveProjectPath('../escape.txt'), /escapes the project/);
+  await assert.rejects(() => pm.resolveProjectPath('../../etc/passwd'), /escapes the project/);
 });
 
 test('writeFile refuses protected files', async () => {
