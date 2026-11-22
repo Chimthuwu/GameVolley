@@ -145,15 +145,54 @@
     <div class="gv-side-label">Projects</div>
     <div id="gvProjects" class="gv-projects"></div>
     <div class="gv-side-label">Build roles</div>
-    <div class="gv-roles">
-      <label>🎬 Director<select id="gvDirector"></select>
-        <input id="gvDirectorModel" class="model-input" spellcheck="false" placeholder="model · blank = auto (prefers free)"></label>
-      <label>🔍 Critic<select id="gvCritic"></select>
-        <input id="gvCriticModel" class="model-input" spellcheck="false" placeholder="model · blank = auto (prefers free)"></label>
-      <label>🛠 Developer<select id="gvDeveloper"></select>
-        <input id="gvDeveloperModel" class="model-input" spellcheck="false" placeholder="CLI model · blank = agent default"></label>
-    </div>
-    <div class="gv-side-label">Checkpoints</div>
+        <div class="gv-roles">
+          <label>🎬 Director<select id="gvDirector"></select>
+            <input id="gvDirectorModel" class="model-input" spellcheck="false" placeholder="model · blank = auto (prefers free)"></label>
+          <label>🔍 Critic<select id="gvCritic"></select>
+            <input id="gvCriticModel" class="model-input" spellcheck="false" placeholder="model · blank = auto (prefers free)"></label>
+          <label>🛠 Developer<select id="gvDeveloper"></select>
+            <input id="gvDeveloperModel" class="model-input" spellcheck="false" placeholder="CLI model · blank = agent default"></label>
+        </div>
+        <div class="gv-side-label">Agent cards</div>
+        <div id="gvAgentCards" class="gv-agent-cards">
+          <div class="gv-agent-card" data-role="director">
+            <div class="gv-agent-card-head">
+              <span class="gv-agent-icon">🎬</span>
+              <span class="gv-agent-name">Director</span>
+              <span class="gv-agent-status-badge idle" data-status="idle">Idle</span>
+            </div>
+            <div class="gv-agent-card-body">
+              <div class="gv-agent-elapsed">—</div>
+              <button class="gv-agent-toggle" aria-label="Expand output" aria-expanded="false">▾</button>
+            </div>
+            <div class="gv-agent-output hidden" aria-live="polite"></div>
+          </div>
+          <div class="gv-agent-card" data-role="developer">
+            <div class="gv-agent-card-head">
+              <span class="gv-agent-icon">🛠</span>
+              <span class="gv-agent-name">Developer</span>
+              <span class="gv-agent-status-badge idle" data-status="idle">Idle</span>
+            </div>
+            <div class="gv-agent-card-body">
+              <div class="gv-agent-elapsed">—</div>
+              <button class="gv-agent-toggle" aria-label="Expand output" aria-expanded="false">▾</button>
+            </div>
+            <div class="gv-agent-output hidden" aria-live="polite"></div>
+          </div>
+          <div class="gv-agent-card" data-role="critic">
+            <div class="gv-agent-card-head">
+              <span class="gv-agent-icon">🔍</span>
+              <span class="gv-agent-name">Critic</span>
+              <span class="gv-agent-status-badge idle" data-status="idle">Idle</span>
+            </div>
+            <div class="gv-agent-card-body">
+              <div class="gv-agent-elapsed">—</div>
+              <button class="gv-agent-toggle" aria-label="Expand output" aria-expanded="false">▾</button>
+            </div>
+            <div class="gv-agent-output hidden" aria-live="polite"></div>
+          </div>
+        </div>
+        <div class="gv-side-label">Checkpoints</div>
     <div id="gvCheckpoints" class="gv-checkpoints"><span class="gv-muted">None yet</span></div>
   </aside>
   <section class="gv-preview">

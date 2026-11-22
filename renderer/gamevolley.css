@@ -124,6 +124,57 @@ body.view-game #gameRoot > * {
 
 /* Composer */
 .gv-composer { grid-column: 2; grid-row: 4; display: flex; flex-direction: column; gap: 8px; background: var(--panel, #11131f); border: 1px solid var(--line, rgba(120,120,200,0.25)); border-radius: 10px; padding: 10px; }
+
+/* Agent Cards */
+.gv-agent-cards { display: flex; flex-direction: column; gap: 8px; }
+.gv-agent-card {
+  background: var(--card, #12141e);
+  border: 1px solid var(--line, rgba(120,120,200,0.25));
+  border-radius: 8px;
+  overflow: hidden;
+}
+.gv-agent-card-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 10px;
+  background: var(--panel, #11131f);
+  border-bottom: 1px solid var(--line, rgba(120,120,200,0.2));
+}
+.gv-agent-icon { font-size: 14px; }
+.gv-agent-name { font-family: 'Rajdhani', system-ui, sans-serif; font-weight: 600; font-size: 12px; color: #eaf0ff; flex: 1; }
+.gv-agent-status-badge {
+  font-family: 'Rajdhani', system-ui, sans-serif; font-size: 10px; font-weight: 600;
+  padding: 2px 6px; border-radius: 4px; text-transform: uppercase; letter-spacing: 0.5px;
+}
+.gv-agent-status-badge.idle { background: rgba(120,120,200,0.15); color: var(--muted-foreground, #7a8296); }
+.gv-agent-status-badge.working { background: rgba(46,230,255,0.2); color: var(--neon-cyan, #2ee6ff); animation: gv-pulse 1.5s ease-in-out infinite; }
+.gv-agent-status-badge.done { background: rgba(46,255,174,0.2); color: var(--neon-green, #2effae); }
+.gv-agent-status-badge.error { background: rgba(255,70,90,0.2); color: #ff7b8f; }
+@keyframes gv-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
+.gv-agent-card-body {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 6px 10px; font-size: 11px; color: var(--muted-foreground, #9aa3b2);
+}
+.gv-agent-elapsed { font-family: 'Space Mono', monospace; }
+.gv-agent-toggle {
+  width: 20px; height: 20px; border: none; background: transparent;
+  color: var(--muted-foreground, #7a8296); cursor: pointer; border-radius: 4px;
+  display: flex; align-items: center; justify-content: center; font-size: 10px;
+}
+.gv-agent-toggle:hover { background: rgba(255,255,255,0.06); color: #eaf0ff; }
+.gv-agent-toggle[aria-expanded="true"] { transform: rotate(180deg); }
+.gv-agent-output {
+  max-height: 0; overflow: hidden; transition: max-height 0.2s ease;
+  background: var(--field, #0e1020); border-top: 1px solid var(--line, rgba(120,120,200,0.2));
+  font-family: 'Space Mono', monospace; font-size: 11px; line-height: 1.5; color: #9fb0cc;
+}
+.gv-agent-output:not(.hidden) { max-height: 200px; overflow: auto; padding: 8px 10px; }
+.gv-agent-output .gv-stream-line { white-space: pre-wrap; word-break: break-word; }
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  .gv-agent-status-badge.working { animation: none; }
+  .gv-agent-toggle, .gv-agent-output { transition: none; }
+}
 #gvIdea { width: 100%; min-height: 56px; resize: vertical; background: var(--field, #0e1020); color: #eaf0ff; border: 1px solid var(--line, rgba(120,120,200,0.3)); border-radius: 8px; padding: 8px; font-family: inherit; font-size: 13px; }
 .gv-composer-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .gv-status { font-size: 12px; color: var(--muted-foreground, #9aa3b2); margin-left: auto; }

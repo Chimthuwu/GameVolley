@@ -113,13 +113,125 @@
     log.scrollTop = log.scrollHeight;
   }
   function setStatus(text, cls) {
-    const s = $('gvStatus');
-    if (!s) return;
-    s.textContent = text || '';
-    s.className = 'gv-status' + (cls ? ' ' + cls : '');
-  }
+      const s = $('gvStatus');
+      if (!s) return;
+      s.textContent = text || '';
+      s.className = 'gv-status' + (cls ? ' ' + cls : '');
+    }
 
-  // ---------- project tree / checkpoints ----------
+    // ---------- agent cards ----------
+    const agentCardState = {
+      director: { status: 'idle', startTime: null, output: '', liveLine: null },
+      developer: { status: 'idle', startTime: null, output: '', liveLine: null },
+      critic: { status: 'idle', startTime: null, output: '', liveLine: null },
+    };
+
+    function resetAgentCards() {
+      for (const role of ['director', 'developer', 'critic']) {
+        agentCardState[role] = { status: 'idle', startTime: null, output: '', liveLine: null };
+        updateAgentCard(role);
+      }
+    }
+
+    function updateAgentCard(role) {
+      const state = agentCardState[role];
+      const card = document.querySelector(`.gv-agent-card[data-role="${role}"]`);
+      if (!card) return;
+
+      const badge = card.querySelector('.gv-agent-status-badge');
+      const elapsedEl = card.querySelector('.gv-agent-elapsed');
+      const outputEl = card.querySelector('.gv-agent-output');
+      const toggle = card.querySelector('.gv-agent-toggle');
+
+      if (badge) {
+        badge.className = 'gv-agent-status-badge ' + state.status;
+        badge.textContent = state.status.charAt(0).toUpperCase() + state.status.slice(1);
+        badge.dataset.status = state.status;
+      }
+
+      if (elapsedEl) {
+        if (state.startTime && state.status === 'working') {
+          const elapsed = Date.now() - state.startTime;
+          const secs = Math.floor(elapsed / 1000);
+          const mins = Math.floor(secs / 60);
+          elapsedEl.textContent = mins > 0 ? `${mins}m ${secs % 60}s` : `${secs}s`;
+        } else if (state.status === 'done') {
+          elapsedEl.textContent = 'Done';
+        } else if (state.status === 'error') {
+          elapsedEl.textContent = 'Error';
+        } else {
+          elapsedEl.textContent = '—';
+        }
+      }
+
+      if (outputEl && state.output) {
+        outputEl.textContent = state.output;
+      }
+    }
+
+    function startAgentTimer(role) {
+      const state = agentCardState[role];
+      state.startTime = Date.now();
+      state.status = 'working';
+      state.output = '';
+      updateAgentCard(role);
+      // Update elapsed time every second while working
+      if (state.timer) clearInterval(state.timer);
+      state.timer = setInterval(() => {
+        if (agentCardState[role].status === 'working') {
+          updateAgentCard(role);
+        } else {
+          clearInterval(state.timer);
+          state.timer = null;
+        }
+      }, 1000);
+    }
+
+    function stopAgentTimer(role, finalStatus) {
+      const state = agentCardState[role];
+      if (state.timer) {
+        clearInterval(state.timer);
+        state.timer = null;
+      }
+      state.status = finalStatus;
+      updateAgentCard(role);
+    }
+
+    function appendAgentOutput(role, text) {
+      const state = agentCardState[role];
+      state.output += text;
+      // Keep output bounded
+      if (state.output.length > 8000) {
+        state.output = '…' + state.output.slice(-8000);
+      }
+      const card = document.querySelector(`.gv-agent-card[data-role="${role}"]`);
+      if (card) {
+        const outputEl = card.querySelector('.gv-agent-output');
+        if (outputEl) outputEl.textContent = state.output;
+      }
+    }
+
+    function toggleAgentOutput(role) {
+      const card = document.querySelector(`.gv-agent-card[data-role="${role}"]`);
+      if (!card) return;
+      const outputEl = card.querySelector('.gv-agent-output');
+      const toggle = card.querySelector('.gv-agent-toggle');
+      if (!outputEl || !toggle) return;
+      const expanded = !outputEl.classList.contains('hidden');
+      outputEl.classList.toggle('hidden', expanded);
+      toggle.setAttribute('aria-expanded', String(!expanded));
+    }
+
+    // Wire up toggle buttons
+    document.addEventListener('click', (e) => {
+      const toggle = e.target.closest('.gv-agent-toggle');
+      if (toggle) {
+        const card = toggle.closest('.gv-agent-card');
+        if (card) toggleAgentOutput(card.dataset.role);
+      }
+    });
+
+    // ---------- project tree / checkpoints ----------
   async function refreshTree() {
     const box = $('gvProjects');
     if (!box) return;
@@ -326,140 +438,157 @@
   }
 
   async function beginBuild(cfg) {
-    if (building) { setStatus('A build is already running. Stop it first.', 'err'); return; }
-    building = true;
-    $('gvStop').classList.remove('hidden');
-    $('gvCreate').disabled = true;
-    setStatus('Starting…');
-    addActivity(`▶ ${cfg.mode === 'create' ? 'Creating' : cfg.mode === 'improve' ? 'Improving' : 'Fixing'}: ${cfg.idea || cfg.report}`, 'cmd');
-    try {
-      const res = await pv.agentStart({ ...cfg, roles: currentRoles(), maxRounds: 3 });
-      if (!res || !res.ok) setStatus(res && res.message ? res.message : 'Could not start.', 'err');
-    } catch (e) {
-      setStatus('Error: ' + (e.message || e), 'err');
-      building = false;
-      $('gvStop').classList.add('hidden');
-      $('gvCreate').disabled = false;
-    }
-  }
-
-  async function stopBuild() {
-    try { await pv.agentCancel(); } catch {}
-    setStatus('Stopping…');
-  }
-
-  // ---------- live events from the orchestration ----------
-  function handleEvent(ev) {
-    if (!ev || !ev.type) return;
-    switch (ev.type) {
-      case 'progress':
-        closeLiveLine();
-        setStatus(`Phase: ${ev.phase} (round ${ev.round}/${ev.maxRounds})`);
-        break;
-      case 'agent:status':
-        closeLiveLine();
-        addActivity(`${roleLabel(ev.role)}: ${ev.status} — ${ev.message || ''}`, ev.status === 'error' ? 'err' : '');
-        break;
-      case 'agent:output':
-        // Token-chunk deltas stream into one live line per role.
-        appendStreamDelta(ev.role, ev.text);
-        break;
-      case 'stage':
-        closeLiveLine();
-        addActivity(`— ${ev.stage}${ev.detail ? ` (${ev.detail})` : ''}`, 'cmd');
-        break;
-      case 'project:changed':
-        closeLiveLine();
-        addActivity(`  ✓ ${ev.operation} ${ev.path}`, 'file');
-        break;
-      case 'preview:load':
-        $('gvPreviewEmpty') && $('gvPreviewEmpty').classList.add('hidden');
-        addActivity('Preview loading…', 'ok');
-        layoutPreview();
-        break;
-      case 'preview:ready':
-        setStatus('Game is live in the preview ▶', 'ok');
-        addActivity('Preview ready.', 'ok');
-        break;
-      case 'preview:error':
-        addActivity('Preview error: ' + (ev.message || ev.code || 'unknown'), 'err');
-        setStatus('Preview failed to load.', 'err');
-        break;
-      case 'review:result':
-        addActivity(`  ⚠ [${ev.severity}] ${ev.message}`, ev.severity === 'HIGH' ? 'err' : 'warn');
-        break;
-      case 'game:done': {
-        const r = ev.result || {};
-        $('gvStop').classList.add('hidden');
-        $('gvCreate').disabled = false;
-        building = false;
-        const issues = (r.knownIssues || []).map((m) => '• ' + m).join('\n');
-        addActivity(`✔ Build complete in ${r.rounds || '?'} round(s).${issues ? '\nRemaining issues:\n' + issues : ''}`, 'ok');
-        setStatus('Done — play it above.', 'ok');
-        break;
-      }
-      case 'error':
-        addActivity('Error: ' + ev.message, 'err');
-        setStatus('Error: ' + ev.message, 'err');
-        break;
-      case 'agent:idle':
-        $('gvStop').classList.add('hidden');
-        $('gvCreate').disabled = false;
-        building = false;
-        break;
-    }
-  }
-
-  function roleLabel(role) {
-    return { director: '🎬 Director', developer: '🛠 Developer', critic: '🔍 Critic' }[role] || role;
-  }
-
-  // ---------- wiring ----------
-    function wire() {
-      $('tabGame').onclick = () => setView('game');
-      $('tabVolley').onclick = () => setView('volley');
-      $('gvNew').onclick = startCreate;
-      $('gvOpen').onclick = openExisting;
-      $('gvCreate').onclick = startCreate;
-      $('gvImprove').onclick = startImprove;
-      $('gvFix').onclick = startFix;
-      $('gvStop').onclick = stopBuild;
-      $('gvReload').onclick = () => { try { pv.previewReload(); } catch {} };
-      $('gvFull').onclick = () => {
-        try {
-          pv.previewFullscreen();
-          isFullscreen = !isFullscreen;
-          saveFullscreenState({ enabled: isFullscreen });
-          $('gvFull').classList.toggle('active', isFullscreen);
-          // Re-layout after fullscreen transition.
-          setTimeout(layoutPreview, 300);
-        } catch {}
-      };
-      $('gvOpenFolder').onclick = () => { try { pv.projectOpenFolder(); } catch {} };
-      layoutPreview();
-    }
-
-    async function boot() {
-      wire();
-      // Default to the GameVolley workspace. Volley remains one click away.
-      setView('game');
-      try { await loadRoles(); } catch {}
-      // Subscribe to streaming orchestration events.
-      if (window.pv && pv.gameOnEvent) {
-        pv.gameOnEvent((ev) => handleEvent(ev));
-      }
-      // Reflect any project already open from a previous session.
+      if (building) { setStatus('A build is already running. Stop it first.', 'err'); return; }
+      building = true;
+      resetAgentCards();
+      $('gvStop').classList.remove('hidden');
+      $('gvCreate').disabled = true;
+      setStatus('Starting…');
+      addActivity(`▶ ${cfg.mode === 'create' ? 'Creating' : cfg.mode === 'improve' ? 'Improving' : 'Fixing'}: ${cfg.idea || cfg.report}`, 'cmd');
       try {
-        activeProject = await pv.projectGetActive();
-        if (activeProject) onProjectOpened();
-      } catch {}
-      // Restore fullscreen state if it was enabled.
-      applyPersistedFullscreen();
+        const res = await pv.agentStart({ ...cfg, roles: currentRoles(), maxRounds: 3 });
+        if (!res || !res.ok) setStatus(res && res.message ? res.message : 'Could not start.', 'err');
+      } catch (e) {
+        setStatus('Error: ' + (e.message || e), 'err');
+        building = false;
+        $('gvStop').classList.add('hidden');
+        $('gvCreate').disabled = false;
+      }
     }
 
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
-  else boot();
+    async function stopBuild() {
+      try { await pv.agentCancel(); } catch {}
+      setStatus('Stopping…');
+    }
 
-  // Expose a tiny API for the smoke test / debugging.
-  window.__gamevolley = { setView, layoutPreview, currentRoles, handleEvent };
-})();
+    // ---------- live events from the orchestration ----------
+    function handleEvent(ev) {
+      if (!ev || !ev.type) return;
+      switch (ev.type) {
+        case 'progress':
+          closeLiveLine();
+          setStatus(`Phase: ${ev.phase} (round ${ev.round}/${ev.maxRounds})`);
+          break;
+        case 'agent:status':
+          closeLiveLine();
+          addActivity(`${roleLabel(ev.role)}: ${ev.status} — ${ev.message || ''}`, ev.status === 'error' ? 'err' : '');
+          // Update agent card
+          if (ev.role === 'director' || ev.role === 'developer' || ev.role === 'critic') {
+            if (ev.status === 'working') {
+              startAgentTimer(ev.role);
+            } else if (ev.status === 'done') {
+              stopAgentTimer(ev.role, 'done');
+            } else if (ev.status === 'error') {
+              stopAgentTimer(ev.role, 'error');
+            }
+          }
+          break;
+        case 'agent:output':
+          // Token-chunk deltas stream into one live line per role.
+          appendStreamDelta(ev.role, ev.text);
+          // Also append to agent card
+          if (ev.role === 'director' || ev.role === 'developer' || ev.role === 'critic') {
+            appendAgentOutput(ev.role, ev.text);
+          }
+          break;
+        case 'stage':
+          closeLiveLine();
+          addActivity(`— ${ev.stage}${ev.detail ? ` (${ev.detail})` : ''}`, 'cmd');
+          break;
+        case 'project:changed':
+          closeLiveLine();
+          addActivity(`  ✓ ${ev.operation} ${ev.path}`, 'file');
+          break;
+        case 'preview:load':
+          $('gvPreviewEmpty') && $('gvPreviewEmpty').classList.add('hidden');
+          addActivity('Preview loading…', 'ok');
+          layoutPreview();
+          break;
+        case 'preview:ready':
+          setStatus('Game is live in the preview ▶', 'ok');
+          addActivity('Preview ready.', 'ok');
+          break;
+        case 'preview:error':
+          addActivity('Preview error: ' + (ev.message || ev.code || 'unknown'), 'err');
+          setStatus('Preview failed to load.', 'err');
+          break;
+        case 'review:result':
+          addActivity(`  ⚠ [${ev.severity}] ${ev.message}`, ev.severity === 'HIGH' ? 'err' : 'warn');
+          break;
+        case 'game:done': {
+          const r = ev.result || {};
+          $('gvStop').classList.add('hidden');
+          $('gvCreate').disabled = false;
+          building = false;
+          // Reset all agent cards to idle after a brief moment
+          setTimeout(resetAgentCards, 2000);
+          const issues = (r.knownIssues || []).map((m) => '• ' + m).join('\n');
+          addActivity(`✔ Build complete in ${r.rounds || '?'} round(s).${issues ? '\nRemaining issues:\n' + issues : ''}`, 'ok');
+          setStatus('Done — play it above.', 'ok');
+          break;
+        }
+        case 'error':
+          addActivity('Error: ' + ev.message, 'err');
+          setStatus('Error: ' + ev.message, 'err');
+          break;
+        case 'agent:idle':
+          $('gvStop').classList.add('hidden');
+          $('gvCreate').disabled = false;
+          building = false;
+          break;
+      }
+    }
+
+    function roleLabel(role) {
+        return { director: '🎬 Director', developer: '🛠 Developer', critic: '🔍 Critic' }[role] || role;
+      }
+
+      // ---------- wiring ----------
+      function wire() {
+        $('tabGame').onclick = () => setView('game');
+        $('tabVolley').onclick = () => setView('volley');
+        $('gvNew').onclick = startCreate;
+        $('gvOpen').onclick = openExisting;
+        $('gvCreate').onclick = startCreate;
+        $('gvImprove').onclick = startImprove;
+        $('gvFix').onclick = startFix;
+        $('gvStop').onclick = stopBuild;
+        $('gvReload').onclick = () => { try { pv.previewReload(); } catch {} };
+        $('gvFull').onclick = () => {
+          try {
+            pv.previewFullscreen();
+            isFullscreen = !isFullscreen;
+            saveFullscreenState({ enabled: isFullscreen });
+            $('gvFull').classList.toggle('active', isFullscreen);
+            // Re-layout after fullscreen transition.
+            setTimeout(layoutPreview, 300);
+          } catch {}
+        };
+        $('gvOpenFolder').onclick = () => { try { pv.projectOpenFolder(); } catch {} };
+        layoutPreview();
+      }
+
+      async function boot() {
+        wire();
+        // Default to the GameVolley workspace. Volley remains one click away.
+        setView('game');
+        try { await loadRoles(); } catch {}
+        // Subscribe to streaming orchestration events.
+        if (window.pv && pv.gameOnEvent) {
+          pv.gameOnEvent((ev) => handleEvent(ev));
+        }
+        // Reflect any project already open from a previous session.
+        try {
+          activeProject = await pv.projectGetActive();
+          if (activeProject) onProjectOpened();
+        } catch {}
+        // Restore fullscreen state if it was enabled.
+        applyPersistedFullscreen();
+      }
+
+      if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+      else boot();
+
+      // Expose a tiny API for the smoke test / debugging.
+      window.__gamevolley = { setView, layoutPreview, currentRoles, handleEvent };
+    })();
