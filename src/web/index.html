@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://openrouter.ai https://api.github.com https://raw.githubusercontent.com">
+<title>VolleyPrompt — two AIs, one perfect prompt</title>
+<meta name="description" content="Two AI models volley your prompt back and forth until it's actually good — runs entirely in your browser, bring your own OpenRouter key. Open source: github.com/Chimthuwu/Volley-Prompt">
+<link rel="icon" href="icon.svg">
+<link rel="canonical" href="https://volley-prompt.pages.dev/">
+
+<!-- Open Graph (Discord, Facebook, Slack, LinkedIn, ...) -->
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://volley-prompt.pages.dev/">
+<meta property="og:title" content="VolleyPrompt — two AIs, one perfect prompt">
+<meta property="og:description" content="Two AI models volley your prompt back and forth — Writer drafts, Reviewer rips it apart — until it's actually good. Runs free in your browser or as a Windows desktop app. Open source on GitHub: github.com/Chimthuwu/Volley-Prompt">
+<meta property="og:image" content="https://volley-prompt.pages.dev/assets/og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="VolleyPrompt — two AIs volley your prompt until it's perfect">
+<meta property="og:site_name" content="VolleyPrompt">
+
+<!-- Twitter / X -->
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="VolleyPrompt — two AIs, one perfect prompt">
+<meta name="twitter:description" content="Two AI models volley your prompt back and forth until it's actually good. Free in your browser or as a Windows desktop app. Source: github.com/Chimthuwu/Volley-Prompt">
+<meta name="twitter:image" content="https://volley-prompt.pages.dev/assets/og-image.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Rajdhani:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap">
+<link rel="stylesheet" href="style.css"></head>
+<body>
+<div class="titlebar" id="titlebar">
+  <div class="tb-brand"><button class="tb-btn sidebar-toggle" id="btnSidebarToggle" title="Toggle sidebar" aria-label="Toggle sidebar" aria-expanded="true">☰</button><img src="icon.svg" alt=""><span>Volley<span>Prompt</span></span></div>
+  <div class="tb-controls">
+    <div class="theme-dropdown-wrap">
+      <button class="tb-btn" id="btnTheme" title="Theme" aria-label="Theme" aria-expanded="false">🎨</button>
+      <div class="theme-panel hidden" id="themePanel">
+        <label>Hue<input type="range" id="themeHue" min="-180" max="180" value="0"></label>
+        <label>Saturation<input type="range" id="themeSat" min="0" max="200" value="100"></label>
+        <label>Contrast<input type="range" id="themeContrast" min="50" max="150" value="100"></label>
+        <button type="button" class="ghost" id="btnThemeReset">Reset</button>
+      </div>
+    </div>
+    <button class="tb-btn" id="btnSettings" title="Settings" aria-label="Settings">⚙</button>
+    <a class="tb-btn" id="desktopDl" href="https://github.com/Chimthuwu/Volley-Prompt/releases/latest/download/VolleyPrompt.-.Windows.Setup.exe" title="Download the Windows desktop app" aria-label="Download the Windows desktop app" style="display:flex;align-items:center;justify-content:center;text-decoration:none;width:auto;padding:0 10px;font-size:11px;font-weight:700;white-space:nowrap">⬇ Desktop app</a>
+    <a class="tb-btn" href="https://github.com/Chimthuwu/Volley-Prompt" target="_blank" rel="noopener" title="View on GitHub" aria-label="View on GitHub" style="display:flex;align-items:center;justify-content:center;text-decoration:none">★</a>
+    <button class="tb-btn" id="tbMin" title="Minimize" style="display:none">─</button>
+    <button class="tb-btn" id="tbMax" title="Maximize" style="display:none">□</button>
+    <button class="tb-btn tb-close" id="tbClose" title="Close" style="display:none">✕</button>
+  </div>
+</div>
+<div class="shell">
+  <aside class="sidebar">
+    <button class="newchat" id="btnNewChat">+ New volley</button>
+    <div class="side-label">History</div>
+    <div class="history" id="history"></div>
+    <div class="sidebar-footer">
+      <button class="icon-btn" id="btnFolder" title="Clear local history" aria-label="Clear local history">🗑</button>
+    </div>
+  </aside>
+  <main>
+  <section id="setup" class="card">
+    <div class="setup-head">
+      <h2>1 · What do you want to build?</h2>
+      <label class="project-inline" title="Optional — groups related volleys together in history">Project <input id="projectName" maxlength="80" placeholder="e.g. Psyde-Clip"></label>
+    </div>
+    <p class="hint">Just ramble. A rough idea is fine — the AIs will do the hard part.</p>
+    <div class="editor-wrapper" id="editorWrapper">
+      <textarea id="idea" placeholder="e.g. A 2D pixel-art platformer where you play a cat stealing fish from a ship…"></textarea>
+      <div class="attachment-tray hidden" id="attachment-tray"></div>
+      <div class="editor-toolbar">
+        <button type="button" class="icon-btn" id="attach-btn" data-tip="Attach files" aria-label="Attach files"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20.3 11.6 12 19.9a4.6 4.6 0 0 1-6.5-6.5l7.6-7.6a3.1 3.1 0 0 1 4.4 4.4l-7.6 7.6a1.6 1.6 0 0 1-2.2-2.2l6.6-6.6"/></svg></button>
+        <input type="file" id="file-input" multiple hidden accept=".png,.jpg,.jpeg,.webp,.gif,.pdf,.txt,.md,.markdown,.json,.csv,.js,.jsx,.ts,.tsx,.py,.html,.htm,.css">
+        <button type="button" class="icon-btn" id="folder-btn" data-tip="Attach a project folder" aria-label="Attach a project folder"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7.5A2.5 2.5 0 0 1 5.5 5h3.2a2 2 0 0 1 1.5.7l1 1.2a2 2 0 0 0 1.5.7h5.8A2.5 2.5 0 0 1 21 10.1v7.4A2.5 2.5 0 0 1 18.5 20h-13A2.5 2.5 0 0 1 3 17.5z"/></svg></button>
+        <input type="file" id="folder-input" webkitdirectory directory multiple hidden>
+        <button type="button" class="icon-btn" id="gh-btn" data-tip="Attach a GitHub repo — public or private" aria-label="Attach a GitHub repository (public, or private with a token)"><svg viewBox="0 0 16 16" aria-hidden="true" focusable="false" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.012 8.012 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg></button>
+      </div>
+    </div>
+    <div class="row">
+      <label>✍ Writer AI <small>writes the prompt</small><input id="author" spellcheck="false"></label>
+      <label>🔍 Reviewer AI <small>picks it apart</small><input id="critic" spellcheck="false"></label>
+
+    </div>
+    <datalist id="modelList"></datalist>
+    <div class="preset-row">
+      <select id="pairSelect" class="preset-select" title="Load a recommended or saved Writer/Reviewer pair"></select>
+      <button type="button" class="icon-btn" id="btnSavePair" title="Save the current Writer/Reviewer as a pair" aria-label="Save model pair">💾</button>
+      <button type="button" class="icon-btn" id="btnDelPair" title="Delete the selected saved pair" aria-label="Delete saved model pair">🗑</button>
+      <span class="hint preset-help" id="pairHelp">Pairs load Writer + Reviewer in one click. Save your own for a kind of work you do often.</span>
+    </div>
+    <p class="hint vision-hints hidden" id="visionHints"></p>
+    <div class="preset-row">
+      <select id="presetSelect" class="preset-select" title="Load a starter template or your saved composer setup"></select>
+      <button type="button" class="icon-btn" id="btnSavePreset" title="Save the current idea/models/settings as a preset">💾</button>
+      <button type="button" class="icon-btn" id="btnDelPreset" title="Delete the selected saved preset">🗑</button>
+      <span class="hint preset-help">Starters or saved setups: idea, models, rounds, and settings. Attachments and API keys aren’t included.</span>
+    </div>
+    <label class="check"><input type="checkbox" id="auto"> Hands-off mode (don't pause for my notes between rounds)</label>
+    <div class="composer-actions"><label class="rounds-inline" title="What the volley should produce: a build prompt, or a deep, code-grounded research & execution plan">Output <select id="outputMode"><option value="prompt">Prompt</option><option value="deep-plan">Code plan</option></select></label><label class="rounds-inline" title="How many Writer ↔ Reviewer exchanges before it stops">Max rounds <input id="rounds" type="number" min="1" max="8" value="3"></label><button class="big" id="btnStart">Start the volley</button> <span class="hint">or press Ctrl+Enter</span></div>
+  </section>
+
+  <section id="run" class="hidden">
+    <div class="status"><span id="statusText" class="round-indicator">Starting…</span><span id="dots" class="dots"></span><span id="statusUsage" class="status-usage"></span><button class="ghost danger" id="btnStop">■ Stop</button></div>
+    <div class="run-models">
+      <label>✍ <input id="runAuthor" class="model-input" list="modelList" spellcheck="false" aria-label="Writer model for the running volley"></label>
+      <label>🔍 <input id="runCritic" class="model-input" list="modelList" spellcheck="false" aria-label="Reviewer model for the running volley"></label>
+      <button type="button" class="ghost" id="btnSwapModels" title="Use these models from the next call">Apply</button>
+      <button type="button" class="ghost" id="btnSwapRetry" title="Abort the request in flight and restart this round on these models">↻ Retry round</button>
+      <span class="hint" id="runModelsHint"></span>
+    </div>
+    <div class="panels">
+      <div class="panel author"><h3>✍ Writer <span id="aRound"></span><button class="mini" data-copy="aOut" title="Copy">📋</button></h3><pre id="aOut"></pre></div>
+      <div class="panel critic"><h3>🔍 Reviewer <span id="cRound"></span><button class="mini" data-copy="cOut" title="Copy">📋</button></h3><pre id="cOut"></pre></div>
+    </div>
+    <div id="notesBox" class="card hidden">
+      <h3>Your turn (optional)</h3>
+      <p class="hint">Add your own notes — they outrank the reviewer's. Or just hit Continue.</p>
+      <textarea id="notes" placeholder="e.g. Make it mobile-friendly. No multiplayer."></textarea>
+      <div class="review-issues hidden" id="reviewIssues"></div>
+      <div class="row"><button class="big" id="btnContinue">Continue ▶</button><button class="ghost" id="btnFinish">Good enough — finish here</button></div>
+    </div>
+  </section>
+
+  <section id="result" class="card hidden">
+    <div class="result-head" id="resultHead">
+      <h2>🎉 Your finished prompt</h2>
+      <button type="button" class="icon-btn" id="resultCollapse" title="Collapse or expand this prompt" aria-label="Collapse or expand the finished prompt">▾</button>
+    </div>
+    <div class="result-body">
+    <p class="hint hidden" id="ideaRecap"></p>
+    <p class="hint">You can edit this before copying.</p>
+    <div class="result-metrics"><strong id="fitnessScore">Fitness: —</strong><span id="modelInfo" style="marginLeft:1rem; font-size:0.8rem; color:var(--dim);">Model: —</span><label>Round <input id="versionSlider" type="range" min="1" max="1" value="1" disabled><span id="versionLabel">—</span></label></div>
+    <div class="final-wrap">
+      <textarea id="final" spellcheck="false"></textarea>
+      <button type="button" class="final-annotate" id="btnAnnotate" title="Annotate — explain why each section of this prompt is there" aria-label="Annotate the prompt">
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20.5 11.6c0 4.2-3.8 7.6-8.5 7.6a9.8 9.8 0 0 1-2.6-.35L4.5 21l1.2-3.9A7.2 7.2 0 0 1 3.5 11.6C3.5 7.4 7.3 4 12 4s8.5 3.4 8.5 7.6Z"/><path d="M8.5 11.5h7M8.5 8.7h4.5"/></svg>
+        <span>Annotate</span>
+      </button>
+    </div>
+    <div class="result-tools"><button class="ghost" id="btnTestDrive">🧪 Test-drive</button><button class="ghost" id="btnVariant">↔ Variant</button><button class="ghost" id="btnReplay">⏯ Export replay</button><button class="ghost" id="btnShareCard">🖼 Share card</button><button class="ghost" id="btnCursor">↗ Copy + Cursor</button></div>
+    <div class="row"><label>Outcome <small>help measure prompt usefulness</small><select id="outcomeTag"><option value="">Not rated</option><option value="used">Used as-is</option><option value="edited">Edited first</option><option value="failed">Didn't work</option><option value="unused">Didn't use</option></select></label></div>
+    <div class="variant-box hidden" id="variantBox">
+      <label>What should the variant change? <small>optional — leave blank for an independent alternative</small>
+        <textarea id="variantInstruction" rows="2" maxlength="10000" placeholder="e.g. Make it mobile-first, drop the audio features, and assume I already have a design system."></textarea>
+      </label>
+      <div class="row"><button class="ghost" id="btnVariantGo">Generate variant</button><button class="ghost" id="btnVariantCancel">Cancel</button></div>
+    </div>
+    <div class="utility-output hidden" id="utilityOutput"><div class="utility-head"><strong id="utilityTitle"></strong><button class="icon-btn" id="utilityClose" title="Close">✕</button></div><pre id="utilityText"></pre></div>
+    <div class="row"><button class="big" id="btnCopy">📋 Copy prompt</button><button class="ghost" id="btnCopyMd" title="Copy with a Markdown header (date, models, rounds)">📄 Copy as .md</button><button class="ghost" id="btnBack">✏ Tweak my idea &amp; re-run</button><button class="ghost" id="btnAgain">Start a new one</button></div>
+    <p class="hint" id="savedAt"></p>
+    </div>
+  </section>
+  </main>
+</div>
+
+<div id="modal" class="modal hidden"><div class="card">
+  <h2 id="modalTitle">Welcome! One-time setup</h2>
+  <ol class="steps">
+    <li>Make a free account at <a href="#" data-url="https://openrouter.ai">openrouter.ai</a></li>
+    <li>Add a few dollars of credit: <a href="#" data-url="https://openrouter.ai/credits">openrouter.ai/credits</a></li>
+    <li>Create a key at <a href="#" data-url="https://openrouter.ai/keys">openrouter.ai/keys</a> and paste it here:</li>
+  </ol>
+  <input id="keyInput" type="password" placeholder="sk-or-..." spellcheck="false">
+  <div id="keyMsg" class="msg"></div>
+  <div class="row"><button class="big" id="btnSaveKey">Save key</button><button class="ghost" id="btnCloseModal">Close</button><button class="ghost" id="btnDemo" title="Play a prerecorded walkthrough — no key needed">▶ Try demo</button></div>
+  <p class="hint" id="keyStorageHint">Your key stays in this browser's local storage and goes straight to OpenRouter — never through any server of ours. Clearing your browser data or using another browser/device means re-entering it.</p>
+</div></div>
+<div id="contextModal" class="modal hidden"><div class="card explorer-card">
+  <div class="explorer-head">
+    <h2>Select project context</h2>
+    <button type="button" class="icon-btn" id="ctxExplorerClose" title="Close" aria-label="Close">✕</button>
+  </div>
+  <p class="hint" id="ctxRootLabel"></p>
+  <div class="explorer-body">
+    <div class="explorer-tree" id="ctxTree"></div>
+    <div class="explorer-summary">
+      <div class="ctx-summary-row"><span>Selected files</span><strong id="ctxSelCount">0</strong></div>
+      <div class="ctx-summary-row"><span>Estimated size</span><strong id="ctxSelSize">0 B</strong></div>
+      <p class="hint ctx-warning hidden" id="ctxWarning"></p>
+      <label class="check ctx-brief"><input type="checkbox" id="ctxBrief"> Attach as project brief (file tree + key files — much cheaper than full code)</label>
+    </div>
+  </div>
+  <div class="row explorer-foot">
+    <button class="big" id="ctxAttach">Attach selected</button>
+    <button class="ghost" id="ctxCancel">Cancel</button>
+  </div>
+</div></div>
+<div id="githubModal" class="modal hidden"><div class="card github-card">
+  <div class="explorer-head"><h2>Attach GitHub repository</h2><button type="button" class="icon-btn" id="githubCancelTop" title="Close" aria-label="Close">✕</button></div>
+  <p class="hint">Public repositories need no token. For private repos, create a fine-grained token restricted to the repository with <strong>Contents: Read-only</strong>. No write permission is needed. <a href="#" data-url="https://github.com/settings/personal-access-tokens/new">Create token</a></p>
+  <label>Fine-grained GitHub token <small id="githubTokenHelp">Optional for public repos. Desktop stores it encrypted using OS secure storage; web keeps it only in memory until this tab closes.</small><input id="githubTokenInput" type="password" autocomplete="off" spellcheck="false" placeholder="github_pat_…"></label>
+  <div class="row github-token-actions"><button class="ghost" id="githubTokenSave">Save &amp; verify token</button><button class="ghost" id="githubTokenClear">Forget token</button><span class="hint github-token-state" id="githubTokenState" aria-live="polite">No GitHub token saved.</span></div>
+  <label>Repository URL or owner/repo<input id="githubRepoInput" type="text" autocomplete="url" placeholder="https://github.com/owner/repo"></label>
+  <p class="hint github-status" id="githubStatus" aria-live="polite">Not connected — enter a repository to attach its context.</p>
+  <div class="row"><button class="big" id="githubFetchBtn">Fetch and attach</button><button class="ghost" id="githubCancel">Cancel</button></div>
+</div></div>
+<div id="toasts" class="toasts"></div>
+<div id="settingsPage" class="settings-page-wrap hidden"><div class="settings-page">
+  <div class="settings-page-head">
+    <div>
+      <h2>⚙ Settings</h2>
+      <p class="hint">Saved on this machine and used by every volley. The default models here are the same fields the composer uses.</p>
+    </div>
+    <button type="button" class="ghost" id="settingsClose" title="Back to where you were" aria-label="Close settings">← Back</button>
+  </div>
+  <div class="settings-grid">
+    <h3 class="settings-section">Models</h3>
+    <label>✍ Default Writer AI <small>pre-fills each new volley</small><input id="setWriter" class="model-input" spellcheck="false" placeholder="e.g. google/gemma-4-31b-it:free"></label>
+    <label>🔍 Default Reviewer AI <small>pre-fills each new volley</small><input id="setCritic" class="model-input" spellcheck="false" placeholder="e.g. nvidia/nemotron-3.5-super-vl:free"></label>
+    <label>↯ Fallback model <small>auto-used when a chosen model fails (rate-limits, outages). Blank = none</small><input id="setFallback" class="model-input" spellcheck="false" placeholder="same or a cheaper model"></label>
+    <h3 class="settings-section">Review &amp; context</h3>
+    <label>🖼 Reviewer sees attachments
+      <select id="setImgMode">
+        <option value="auto">Auto — images when the Reviewer supports vision; otherwise the Writer describes them</option>
+        <option value="full">Always — Reviewer always receives the images (needs vision)</option>
+        <option value="describe">Describe — Writer describes images, Reviewer stays text-only</option>
+        <option value="skip">Never — Reviewer works from text only (cheapest)</option>
+      </select>
+    </label>
+    <label>📜 Past volleys as context <small>reuse the last N finished prompts (and their ideas) as reference, 0–5</small><input id="setRecent" type="number" min="0" max="5" value="0"></label>
+    <label>🧭 Reviewer rubric <small>additional quality criteria; saved on this device and included with presets</small><textarea id="setRubric" rows="4" maxlength="6000" placeholder="e.g. Prefer accessible keyboard controls; avoid adding services that need paid accounts."></textarea></label>
+    <h3 class="settings-section">Spend &amp; keys</h3>
+    <label>💸 Per-volley budget cap <small>stop after the current model response reaches this spend; 0 disables the cap</small><input id="setBudget" type="number" min="0" max="100" step="0.01" value="0"></label>
+    <div class="key-store">
+      <div class="key-store-row"><span>🔑 OpenRouter key</span><strong id="keyStoreStatus">Checking…</strong></div>
+      <p class="hint key-store-where" id="keyStoreWhere">Where this key is stored…</p>
+      <p class="hint" id="keyUsageInfo">OpenRouter key usage is available when a key is saved.</p>
+    </div>
+  </div>
+  <div class="row settings-foot">
+    <button class="big" id="btnSaveSettings">Save settings</button>
+    <button class="ghost" id="btnEditKey">API key…</button>
+  </div>
+</div></div>
+<canvas id="bgCanvas"></canvas>
+<!-- Context menu (right-click on sidebar session items / project folders) -->
+<div class="context-menu hidden" id="contextMenu">
+  <div class="menu-item" data-action="rename" data-scope="run">Rename</div>
+  <div class="menu-item" data-action="move" data-scope="run">Move to folder…</div>
+  <div class="menu-item danger" data-action="delete" data-scope="run">Delete</div>
+  <div class="menu-item" data-action="rename-project" data-scope="project">Rename folder</div>
+  <div class="menu-item danger" data-action="delete-project" data-scope="project">Delete folder</div>
+</div>
+
+<!-- Prompt / confirm dialog. window.prompt() and window.confirm() are not available in
+     Electron renderers, so rename and delete use this instead. -->
+<div id="promptModal" class="modal hidden"><div class="card prompt-card">
+  <h2 id="promptTitle">Rename</h2>
+  <p class="hint" id="promptMessage"></p>
+  <div id="promptChoices" class="prompt-choices hidden"></div>
+  <label id="promptField"><span id="promptLabel">Name</span><input id="promptInput" type="text" maxlength="120" spellcheck="false"></label>
+  <div class="row"><button class="big" id="promptOk">Save</button><button class="ghost" id="promptCancel">Cancel</button></div>
+</div></div>
+<script src="pv.js"></script>
+
+<script src="app.js"></script>
+</body></html>

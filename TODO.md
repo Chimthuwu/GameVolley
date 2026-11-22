@@ -23,7 +23,7 @@ Spec: Z:\HERMES\.hermes\attachments\pasted_content_2026-11-11_19-03-37-193_209f5
 - [x] 3.4 partial: auto-pick prefers free (pickAutoModel); explicit auto/prefer-free UI semantics still open
 - [x] 3.5 [DONE this commit] Explorer tree (expand/collapse, icons, search, lazy)
 - [x] 3.6 [DONE this commit] Activity panel (role filter, search, clear, bounded)
-- [~] 3.7 Visual polish (reduced-motion, restrained accent)
+- [x] 3.7 [DONE this commit] Visual polish (reduced-motion, restrained accent)
 
 ## Docs/distribution
 - [x] README links → Chimthuwu/GameVolley; mac/linux artifact names; STYLING.md; docs reflect reality

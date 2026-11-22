@@ -7,15 +7,16 @@
   "author": "Serge",
   "license": "MIT",
   "scripts": {
-    "start": "electron .",
-    "icons": "node scripts/make-icons.mjs",
-    "test": "node --test",
-    "test:e2e": "electron scripts/e2e/e2e-history.js",
-    "test:e2e:web": "electron scripts/e2e/e2e-history-web.js",
-    "dist": "npm run icons && electron-builder --win --publish never",
-    "site:dev": "wrangler pages dev site",
-    "site:deploy": "wrangler pages deploy site --project-name=volley-prompt --branch=main --commit-dirty=true"
-  },
+      "start": "electron .",
+      "icons": "node scripts/make-icons.mjs",
+      "build:shared": "node scripts/build-shared.mjs",
+      "test": "node --test",
+      "test:e2e": "electron scripts/e2e/e2e-history.js",
+      "test:e2e:web": "electron scripts/e2e/e2e-history-web.js",
+      "dist": "npm run build:shared && npm run icons && electron-builder --win --publish never",
+      "site:dev": "npm run build:shared && wrangler pages dev site",
+      "site:deploy": "npm run build:shared && wrangler pages deploy site --project-name=volley-prompt --branch=main --commit-dirty=true"
+    },
   "build": {
     "appId": "com.serge.gamevolley",
     "productName": "GameVolley",
