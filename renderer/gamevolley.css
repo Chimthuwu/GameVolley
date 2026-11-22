@@ -81,7 +81,20 @@ body.view-game #gameRoot > * {
 }
 .gv-side-label { font-family: 'Orbitron', sans-serif; font-size: 11px; letter-spacing: 1px; color: var(--neon-cyan, #2ee6ff); margin: 14px 0 6px; text-transform: uppercase; }
 .gv-side-label:first-child { margin-top: 0; }
-.gv-projects { display: flex; flex-direction: column; gap: 2px; max-height: 180px; overflow: auto; }
+.gv-search { width: 100%; background: var(--field, #0e1020); color: #eaf0ff; border: 1px solid var(--line, rgba(120,120,200,0.3)); border-radius: 6px; padding: 6px 8px; font-size: 12px; margin-bottom: 6px; box-sizing: border-box; }
+.gv-search::placeholder { color: var(--muted-foreground, #5b6478); }
+.gv-search:focus { outline: none; border-color: var(--neon-cyan, #2ee6ff); box-shadow: 0 0 8px rgba(46,230,255,0.2); }
+.gv-projects { display: flex; flex-direction: column; gap: 1px; max-height: 180px; overflow: auto; }
+.gv-tree-node { display: flex; flex-direction: column; }
+.gv-tree-node-header { display: flex; align-items: center; gap: 4px; padding: 3px 6px; border-radius: 4px; cursor: pointer; user-select: none; }
+.gv-tree-node-header:hover { background: rgba(255,255,255,0.05); }
+.gv-tree-toggle { width: 16px; height: 16px; display: flex; align-items: center; justify-content: center; font-size: 10px; color: var(--muted-foreground, #7a8296); flex-shrink: 0; }
+.gv-tree-toggle.collapsed { transform: rotate(-90deg); }
+.gv-tree-icon { font-size: 13px; flex-shrink: 0; }
+.gv-tree-name { font-size: 12px; color: #c8d0e0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; }
+.gv-tree-name.dir { color: #8fa0c0; }
+.gv-tree-children { display: none; margin-left: 16px; border-left: 1px solid var(--line, rgba(120,120,200,0.15)); padding-left: 4px; }
+.gv-tree-children.expanded { display: flex; flex-direction: column; }
 .gv-file { font-size: 12px; color: #c8d0e0; padding: 2px 4px; border-radius: 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .gv-file.dir { color: #8fa0c0; }
 .gv-muted { color: var(--muted-foreground, #7a8296); font-size: 12px; }

@@ -284,26 +284,209 @@
         }
 
         // ---------- project tree / checkpoints ----------
-  async function refreshTree() {
-    const box = $('gvProjects');
-    if (!box) return;
-    if (!activeProject) { box.innerHTML = '<span class="gv-muted">No project open</span>'; return; }
-    box.innerHTML = '';
-    try {
-      const files = await pv.projectListFiles('');
-      for (const f of files.slice(0, 200)) {
-        const row = document.createElement('div');
-        row.className = 'gv-file' + (f.type === 'dir' ? ' dir' : '');
-        row.textContent = (f.type === 'dir' ? '📁 ' : '📄 ') + f.path;
-        box.appendChild(row);
+  // ---------- project tree / checkpoints ----------
+    async function refreshTree() {
+      const box = $('gvProjects');
+      const searchInput = $('gvProjectsSearch');
+      if (!box) return;
+      if (!activeProject) { box.innerHTML = '<span class="gv-muted">No project open</span>'; return; }
+      box.innerHTML = '';
+      try {
+        const files = await pv.projectListFiles('');
+        // Build tree structure
+        const root = buildFileTree(files);
+        renderTree(root, box);
+        // Wire up search
+        if (searchInput) {
+          searchInput.oninput = () => filterTree(searchInput.value.toLowerCase());
+        }
+      } catch (e) {
+        box.innerHTML = '<span class="gv-muted">Cannot list files</span>';
       }
-      if (files.length === 0) box.innerHTML = '<span class="gv-muted">Empty project</span>';
-    } catch (e) {
-      box.innerHTML = '<span class="gv-muted">Cannot list files</span>';
     }
-  }
 
-  async function refreshCheckpoints() {
+    function buildFileTree(files) {
+      const root = { name: '', path: '', type: 'dir', children: new Map() };
+      for (const f of files) {
+        const parts = f.path.split('/').filter(Boolean);
+        let node = root;
+        for (let i = 0; i < parts.length; i++) {
+          const part = parts[i];
+          const isLast = i === parts.length - 1;
+          const fullPath = parts.slice(0, i + 1).join('/');
+          if (!node.children.has(part)) {
+            node.children.set(part, {
+              name: part,
+              path: fullPath,
+              type: isLast ? f.type : 'dir',
+              children: new Map(),
+              loaded: false,
+              element: null
+            });
+          }
+          node = node.children.get(part);
+          if (isLast) {
+            node.type = f.type;
+          }
+        }
+      }
+      return root;
+    }
+
+    function renderTree(node, container, depth = 0) {
+      // Sort: directories first, then files, alphabetically
+      const entries = Array.from(node.children.entries()).sort((a, b) => {
+        const aIsDir = a[1].type === 'dir';
+        const bIsDir = b[1].type === 'dir';
+        if (aIsDir !== bIsDir) return aIsDir ? -1 : 1;
+        return a[0].localeCompare(b[0]);
+      });
+
+      for (const [name, child] of entries) {
+        const nodeEl = document.createElement('div');
+        nodeEl.className = 'gv-tree-node';
+        nodeEl.dataset.path = child.path;
+
+        const isDir = child.type === 'dir';
+        const hasChildren = isDir && child.children.size > 0;
+
+        const header = document.createElement('div');
+        header.className = 'gv-tree-node-header';
+        if (depth > 0) header.style.paddingLeft = `${6 + depth * 8}px`;
+
+        const toggle = document.createElement('span');
+        toggle.className = 'gv-tree-toggle' + (hasChildren ? '' : ' hidden');
+        toggle.textContent = '▶';
+        toggle.dataset.path = child.path;
+        if (hasChildren) toggle.classList.add('collapsed');
+
+        const icon = document.createElement('span');
+        icon.className = 'gv-tree-icon';
+        icon.textContent = isDir ? '📁' : getFileIcon(child.name);
+
+        const name = document.createElement('span');
+        name.className = 'gv-tree-name' + (isDir ? ' dir' : '');
+        name.textContent = child.name;
+
+        header.append(toggle, icon, name);
+        nodeEl.appendChild(header);
+
+        const childrenContainer = document.createElement('div');
+        childrenContainer.className = 'gv-tree-children';
+        childrenContainer.dataset.path = child.path;
+        nodeEl.appendChild(childrenContainer);
+
+        container.appendChild(nodeEl);
+        child.element = { header, childrenContainer, toggle };
+
+        // Click handler for toggle
+        if (hasChildren) {
+          header.onclick = (e) => {
+            if (e.target === toggle || e.target === header) {
+              toggleTreeNode(child.path);
+            }
+          };
+        }
+      }
+    }
+
+    function getFileIcon(filename) {
+      const ext = filename.split('.').pop().toLowerCase();
+      const icons = {
+        js: '📜', ts: '📜', jsx: '📜', tsx: '📜',
+        html: '🌐', htm: '🌐', css: '🎨', scss: '🎨', sass: '🎨',
+        json: '📋', md: '📝', txt: '📄',
+        png: '🖼', jpg: '🖼', jpeg: '🖼', gif: '🖼', webp: '🖼', svg: '🖼',
+        mp3: '🎵', wav: '🎵', ogg: '🎵',
+        mp4: '🎬', webm: '🎬',
+        py: '🐍', rs: '🦀', go: '🐹', java: '☕', cpp: '⚙', c: '⚙', h: '⚙',
+        sh: '💻', bat: '💻', cmd: '💻',
+        yml: '⚙', yaml: '⚙', toml: '⚙', ini: '⚙', cfg: '⚙',
+      };
+      return icons[ext] || '📄';
+    }
+
+    async function toggleTreeNode(path) {
+      // Find the node data
+      const nodeEl = document.querySelector(`.gv-tree-node[data-path="${escapeSelector(path)}"]`);
+      if (!nodeEl) return;
+      const childrenContainer = nodeEl.querySelector('.gv-tree-children');
+      const toggle = nodeEl.querySelector('.gv-tree-toggle');
+      if (!childrenContainer || !toggle) return;
+
+      const isExpanded = childrenContainer.classList.contains('expanded');
+      if (isExpanded) {
+        childrenContainer.classList.remove('expanded');
+        toggle.classList.add('collapsed');
+        return;
+      }
+
+      // Expand - load children if not loaded
+      if (!childrenContainer.dataset.loaded) {
+        childrenContainer.innerHTML = '<div class="gv-muted" style="padding: 4px 8px; font-size: 11px;">Loading…</div>';
+        try {
+          const files = await pv.projectListFiles(path);
+          // Build children tree
+          const childNode = { name: '', path, type: 'dir', children: new Map() };
+          for (const f of files) {
+                      const relPath = f.path.startsWith(path + '/') ? f.path.slice(path.length + 1) : f.path;
+                      const parts = relPath.split('/').filter(Boolean);
+                      let node = childNode;
+                      for (let i = 0; i < parts.length; i++) {
+                        const part = parts[i];
+                        const isLast = i === parts.length - 1;
+                        const fullPath = path + '/' + parts.slice(0, i + 1).join('/');
+                        if (!node.children.has(part)) {
+                          node.children.set(part, {
+                            name: part,
+                            path: fullPath,
+                            type: isLast ? f.type : 'dir',
+                            children: new Map(),
+                            loaded: false,
+                            element: null
+                          });
+                        }
+                        node = node.children.get(part);
+                        if (isLast) node.type = f.type;
+                      }
+                    }
+                    renderTree(childNode, childrenContainer, 1);
+          childrenContainer.dataset.loaded = 'true';
+        } catch (e) {
+          childrenContainer.innerHTML = '<div class="gv-muted" style="padding: 4px 8px; font-size: 11px;">Error loading</div>';
+        }
+      }
+      childrenContainer.classList.add('expanded');
+      toggle.classList.remove('collapsed');
+    }
+
+    function filterTree(query) {
+      const box = $('gvProjects');
+      if (!box) return;
+      const nodes = box.querySelectorAll('.gv-tree-node');
+      nodes.forEach(node => {
+        const nameEl = node.querySelector('.gv-tree-name');
+        if (!nameEl) return;
+        const name = nameEl.textContent.toLowerCase();
+        const path = node.dataset.path.toLowerCase();
+        const match = query === '' || name.includes(query) || path.includes(query);
+        node.style.display = match ? '' : 'none';
+        // If a child matches, show parent too
+        if (match && query !== '') {
+          let parent = node.parentElement.closest('.gv-tree-node');
+          while (parent) {
+            parent.style.display = '';
+            parent = parent.parentElement.closest('.gv-tree-node');
+          }
+        }
+      });
+    }
+
+    function escapeSelector(s) {
+        return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      }
+
+      async function refreshCheckpoints() {
     const box = $('gvCheckpoints');
     if (!box) return;
     if (!activeProject) { box.innerHTML = '<span class="gv-muted">None yet</span>'; return; }
