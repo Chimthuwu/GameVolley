@@ -121,9 +121,9 @@ class AgentManager {
     return res.text;
   }
 
-  async _review(brief, { signal, onEvent }) {
+  async _review(brief, { signal, onEvent, buildContext }) {
     this._emit(onEvent, { type: 'agent:status', role: 'critic', status: 'working', message: 'Reviewing the build…' });
-    const summary = await this.projectManager.getProjectSummary().catch(() => ({ name: '', entry: null, tree: [], manifest: '' }));
+    const summary = await this.projectManager.getProjectSummary(buildContext).catch(() => ({ name: '', entry: null, tree: [], manifest: '' }));
     const ctx = `DEVELOPMENT BRIEF:\n${brief}\n\nPROJECT SUMMARY:\n${JSON.stringify({ entry: summary.entry, tree: summary.tree.slice(0, 60) }, null, 2)}\n\nKEY FILES:\n${summary.manifest.slice(0, 6000)}`;
     const provider = this.providers.getProvider(this._criticId);
     const models = await provider.getModels().catch(() => []);
@@ -163,17 +163,17 @@ class AgentManager {
 
   // Run the developer. `restore` (optional) is handed to the agent so a mid-write
   // staged-commit failure puts the project back BEFORE this throws.
-  async _develop(taskPrompt, { developerId, developerModel, signal, onEvent, label, restore }) {
+  async _develop(taskPrompt, { developerId, developerModel, signal, onEvent, label, restore, buildContext }) {
     const agent = this._developerAgent(developerId);
     // Snapshot for change detection.
-    const before = await this.projectManager.snapshotHashes().catch(() => ({}));
+    const before = await this.projectManager.snapshotHashes(buildContext).catch(() => ({}));
     this._emit(onEvent, { type: 'agent:status', role: 'developer', status: 'working', message: label || 'Building the game…' });
-    const cp = await this.projectManager.checkpoint().create(this.projectManager.active.path, label || 'pre-dev').catch(() => null);
+    const cp = await this.projectManager.checkpoint().create(buildContext.path, label || 'pre-dev').catch(() => null);
     if (cp && this.hooks.onCheckpoint) this.hooks.onCheckpoint(cp);
     let result;
     try {
       result = await agent.runTask({
-        projectPath: this.projectManager.active.path,
+        projectPath: buildContext.path,
         prompt: taskPrompt,
         model: developerModel || null,
         signal,
@@ -188,40 +188,40 @@ class AgentManager {
       this._emit(onEvent, { type: 'agent:status', role: 'developer', status: 'error', message: e.message });
       throw e;
     }
-    const after = await this.projectManager.snapshotHashes().catch(() => ({}));
+    const after = await this.projectManager.snapshotHashes(buildContext).catch(() => ({}));
     const changed = this.projectManager.diffSnapshots(before, after);
     for (const c of changed) this._emit(onEvent, { type: 'project:changed', path: c.path, operation: c.operation });
     this._emit(onEvent, { type: 'agent:status', role: 'developer', status: 'done', message: `${changed.length} file(s) changed.` });
     return { changed, result };
   }
 
-  async _reloadPreview(onEvent) {
-    const entry = await this.projectManager.detectEntryPoint().catch(() => null);
+  async _reloadPreview(onEvent, buildContext) {
+    const entry = await this.projectManager.detectEntryPoint(buildContext).catch(() => null);
     if (!entry) {
       this._emit(onEvent, { type: 'preview:error', message: 'No playable entry point found in the project. The coding agent did not produce an index.html or dev server.' });
       return null;
     }
     this._emit(onEvent, { type: 'preview:load', entry });
-    if (this.hooks.loadPreview) await this.hooks.loadPreview({ projectPath: this.projectManager.active.path, entry });
+    if (this.hooks.loadPreview) await this.hooks.loadPreview({ projectPath: buildContext.path, entry });
     return entry;
   }
 
   // The validation gate: execution-level proof (entry refs, syntax, optional
   // build, preview runtime health) before the Critic is ever consulted.
-  async _validate({ onEvent, entry }) {
+  async _validate({ onEvent, entry, buildContext }) {
     const preview = this.hooks.getPreview ? this.hooks.getPreview() : null;
     const entryFile = entry && entry.type === 'file' ? entry.path : 'index.html';
     return validateProject({
-      root: this.projectManager.active.path,
+      root: buildContext.path,
       preview,
       entryFile,
       emit: (e) => this._emit(onEvent, e),
     });
   }
 
-  _safeRestore(cp, onEvent) {
+  _safeRestore(cp, onEvent, buildContext) {
     if (!cp) return Promise.resolve();
-    return this.projectManager.checkpoint().restore(this.projectManager.active.path, cp.id)
+    return this.projectManager.checkpoint().restore(buildContext.path, cp.id)
       .then(() => this._emit(onEvent, { type: 'restored', checkpoint: cp.id, label: cp.label }))
       .catch(() => {});
   }
@@ -229,7 +229,9 @@ class AgentManager {
   // Shared bounded round loop with the completion policy documented at the top.
   async _runRounds({ buildTask, brief, signal, onEvent, maxRounds }) {
     const rounds = clampRounds(maxRounds);
-    const root = this.projectManager.active.path;
+    // Capture immutable project context for this build.
+    const buildContext = this.projectManager.startBuildContext();
+    const root = buildContext.path;
     let lastGood = await this.projectManager.checkpoint().create(root, 'baseline').catch(() => null);
     let feedback = null;
     let lastEntry = null;
@@ -237,69 +239,75 @@ class AgentManager {
     let lastReview = { findings: [], verdict: 'NEEDS-WORK' };
     let round = 0;
 
-    while (round < rounds) {
-      round++;
-      this._emit(onEvent, { type: 'progress', phase: 'develop', round, maxRounds: rounds });
-      const fixNote = feedback
-        ? `\n\nIMPORTANT — the previous pass did not fully succeed. Fix ALL of these before anything else:\n${feedback}`
-        : '';
-      const restoreTo = async () => this._safeRestore(lastGood, onEvent);
+    try {
+      while (round < rounds) {
+        round++;
+        this._emit(onEvent, { type: 'progress', phase: 'develop', round, maxRounds: rounds });
+        const fixNote = feedback
+          ? `\n\nIMPORTANT — the previous pass did not fully succeed. Fix ALL of these before anything else:\n${feedback}`
+          : '';
+        const restoreTo = async () => this._safeRestore(lastGood, onEvent, buildContext);
 
-      try {
-        await this._develop(buildTask + fixNote, {
-          developerId: this._developerId,
-          developerModel: this._developerModel,
-          signal,
-          onEvent,
-          label: round > 1 ? `Fixing issues (round ${round})…` : 'Building the game…',
-          restore: restoreTo,
-        });
-      } catch (err) {
-        // Crash or unusable output -> put the project back, then surface the error.
-        await restoreTo();
-        this._emit(onEvent, { type: 'agent:status', role: 'developer', status: 'error', message: `Rolled back to "${lastGood ? lastGood.label : 'baseline'}": ${err.message}` });
-        throw err;
+        try {
+          await this._develop(buildTask + fixNote, {
+            developerId: this._developerId,
+            developerModel: this._developerModel,
+            signal,
+            onEvent,
+            label: round > 1 ? `Fixing issues (round ${round})…` : 'Building the game…',
+            restore: restoreTo,
+            buildContext,
+          });
+        } catch (err) {
+          // Crash or unusable output -> put the project back, then surface the error.
+          await restoreTo();
+          this._emit(onEvent, { type: 'agent:status', role: 'developer', status: 'error', message: `Rolled back to "${lastGood ? lastGood.label : 'baseline'}": ${err.message}` });
+          throw err;
+        }
+
+        // Reload the preview FIRST so validation never reads stale state.
+        lastEntry = await this._reloadPreview(onEvent, buildContext);
+        this._emit(onEvent, { type: 'progress', phase: 'validate', round, maxRounds: rounds });
+        const validation = await this._validate({ onEvent, entry: lastEntry, buildContext });
+        lastValidation = validation;
+
+        if (!validation.ok) {
+          this._emit(onEvent, { type: 'validation:failed', round, checks: validation.checks, blocking: validation.blocking });
+          // Keep the work; feed the validation errors into the next round.
+          feedback = `VALIDATION FAILED — fix these execution-level problems:\n${validation.blocking.map((b) => `- ${b}`).join('\n')}`;
+          continue;
+        }
+
+        // This state is execution-verified good; it becomes the rollback point.
+        lastGood = await this.projectManager.checkpoint().create(root, `round-${round}-valid`).catch(() => lastGood);
+
+        this._emit(onEvent, { type: 'progress', phase: 'review', round, maxRounds: rounds });
+        lastReview = await this._review(brief, { signal, onEvent, buildContext });
+        const highOrMed = lastReview.findings.filter((f) => f.severity !== 'LOW');
+        const passed = (lastReview.verdict === 'SHIP' || lastReview.verdict === 'CLOSE') && highOrMed.length === 0;
+        if (passed) {
+          this._emit(onEvent, { type: 'stage', stage: 'success' });
+          return { completed: true, round, rounds, entry: lastEntry, review: lastReview, validation };
+        }
+        feedback = `Review findings to address:\n${lastReview.findings.map((f) => `- [${f.severity}] ${f.message}`).join('\n')}`;
       }
 
-      // Reload the preview FIRST so validation never reads stale state.
-      lastEntry = await this._reloadPreview(onEvent);
-      this._emit(onEvent, { type: 'progress', phase: 'validate', round, maxRounds: rounds });
-      const validation = await this._validate({ onEvent, entry: lastEntry });
-      lastValidation = validation;
-
-      if (!validation.ok) {
-        this._emit(onEvent, { type: 'validation:failed', round, checks: validation.checks, blocking: validation.blocking });
-        // Keep the work; feed the validation errors into the next round.
-        feedback = `VALIDATION FAILED — fix these execution-level problems:\n${validation.blocking.map((b) => `- ${b}`).join('\n')}`;
-        continue;
-      }
-
-      // This state is execution-verified good; it becomes the rollback point.
-      lastGood = await this.projectManager.checkpoint().create(root, `round-${round}-valid`).catch(() => lastGood);
-
-      this._emit(onEvent, { type: 'progress', phase: 'review', round, maxRounds: rounds });
-      lastReview = await this._review(brief, { signal, onEvent });
-      const highOrMed = lastReview.findings.filter((f) => f.severity !== 'LOW');
-      const passed = (lastReview.verdict === 'SHIP' || lastReview.verdict === 'CLOSE') && highOrMed.length === 0;
-      if (passed) {
-        this._emit(onEvent, { type: 'stage', stage: 'success' });
-        return { completed: true, round, rounds, entry: lastEntry, review: lastReview, validation };
-      }
-      feedback = `Review findings to address:\n${lastReview.findings.map((f) => `- [${f.severity}] ${f.message}`).join('\n')}`;
+      // Out of rounds and not complete: restore the last known-good state.
+      await this._safeRestore(lastGood, onEvent, buildContext);
+      return {
+        completed: false,
+        round,
+        rounds,
+        entry: lastEntry,
+        review: lastReview,
+        validation: lastValidation,
+        reason: 'Did not pass validation and review within the round limit',
+        blocking: lastValidation ? lastValidation.blocking : [],
+      };
+    } finally {
+      // Always release the build context lock.
+      this.projectManager.endBuildContext();
     }
-
-    // Out of rounds and not complete: restore the last known-good state.
-    await this._safeRestore(lastGood, onEvent);
-    return {
-      completed: false,
-      round,
-      rounds,
-      entry: lastEntry,
-      review: lastReview,
-      validation: lastValidation,
-      reason: 'Did not pass validation and review within the round limit',
-      blocking: lastValidation ? lastValidation.blocking : [],
-    };
   }
 
   // Public: create a brand-new game from an idea.

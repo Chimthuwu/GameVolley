@@ -110,54 +110,88 @@ class ProjectManager {
     this.checkpoints = new CheckpointManager();
     this._watcher = null;
     this._emit = typeof eventSink === 'function' ? eventSink : () => {};
+    this._buildInProgress = false; // Prevents project switches during a build
+  }
+
+  // ---- build context isolation ----
+  // Call at build start to freeze the project context.
+  // Returns a frozen snapshot { name, path, realRoot } that must be used
+  // for all file operations during the build. While a build context is
+  // active, openProject/createProject will throw.
+  startBuildContext() {
+    if (!this.active) throw new Error('No active project. Open or create one first.');
+    if (this._buildInProgress) throw new Error('A build is already in progress; cannot start another.');
+    this._buildInProgress = true;
+    // Return a frozen copy so the caller owns the context for this build.
+    return Object.freeze({ ...this.active });
+  }
+
+  // Call at build end (success or failure) to release the lock.
+  endBuildContext() {
+    this._buildInProgress = false;
+  }
+
+  // Internal: used by file operations to verify they're using the correct build context.
+  // If a build context is active, the caller must pass it and it must match.
+  _assertBuildContext(buildContext) {
+    if (this._buildInProgress) {
+      if (!buildContext || buildContext.path !== this.active?.path) {
+        throw new Error('Project context mismatch: a build is in progress for a different project.');
+      }
+    }
   }
 
   // ---- path safety ----
-  async resolveProjectPath(relativePath) {
-    if (!this.active) throw new Error('No active project. Open or create one first.');
-    const target = path.resolve(this.active.path, String(relativePath || ''));
-    return resolveWithinRealRoot(this.active.realRoot, target);
-  }
+    async resolveProjectPath(relativePath, buildContext) {
+      if (!this.active) throw new Error('No active project. Open or create one first.');
+      this._assertBuildContext(buildContext);
+      const target = path.resolve(this.active.path, String(relativePath || ''));
+      return resolveWithinRealRoot(this.active.realRoot, target);
+    }
 
   // ---- open / create ----
-  async openProject(projectPath) {
-    const resolved = path.resolve(projectPath);
-    let stat;
-    try { stat = await fs.stat(resolved); } catch { throw new Error(`Cannot open "${projectPath}" — folder not found.`); }
-    if (!stat.isDirectory()) throw new Error('Selected project must be a directory.');
-    // Resolve to real path to defeat symlink escapes at the root level.
-    const realRoot = await fs.realpath(resolved);
-    this.active = { name: path.basename(resolved), path: resolved, realRoot };
-    this._emit({ type: 'project:opened', name: this.active.name, path: resolved });
-    return this.getActive();
-  }
+    async openProject(projectPath) {
+      if (this._buildInProgress) throw new Error('Cannot switch projects while a build is in progress.');
+      const resolved = path.resolve(projectPath);
+      let stat;
+      try { stat = await fs.stat(resolved); } catch { throw new Error(`Cannot open "${projectPath}" — folder not found.`); }
+      if (!stat.isDirectory()) throw new Error('Selected project must be a directory.');
+      // Resolve to real path to defeat symlink escapes at the root level.
+      const realRoot = await fs.realpath(resolved);
+      this.active = { name: path.basename(resolved), path: resolved, realRoot };
+      this._emit({ type: 'project:opened', name: this.active.name, path: resolved });
+      return this.getActive();
+    }
 
-  async createProject(projectPath, { idea = '', parent = null } = {}) {
-    const resolved = path.resolve(projectPath);
-    await fs.mkdir(resolved, { recursive: true });
-    // Record metadata so the workspace can show the original idea later.
-    const metaPath = path.join(resolved, '.gamevolley', 'meta.json');
-    await fs.mkdir(path.dirname(metaPath), { recursive: true });
-    await fs.writeFile(metaPath, JSON.stringify({
-      name: path.basename(resolved),
-      createdAt: Date.now(),
-      idea,
-    }, null, 2), 'utf8');
-    const realRoot = await fs.realpath(resolved);
-    this.active = { name: path.basename(resolved), path: resolved, realRoot };
-    this._emit({ type: 'project:opened', name: this.active.name, path: resolved });
-    return this.getActive();
-  }
+    async createProject(projectPath, { idea = '', parent = null } = {}) {
+      if (this._buildInProgress) throw new Error('Cannot switch projects while a build is in progress.');
+      const resolved = path.resolve(projectPath);
+      await fs.mkdir(resolved, { recursive: true });
+      // Record metadata so the workspace can show the original idea later.
+      const metaPath = path.join(resolved, '.gamevolley', 'meta.json');
+      await fs.mkdir(path.dirname(metaPath), { recursive: true });
+      await fs.writeFile(metaPath, JSON.stringify({
+        name: path.basename(resolved),
+        createdAt: Date.now(),
+        idea,
+      }, null, 2), 'utf8');
+      const realRoot = await fs.realpath(resolved);
+      this.active = { name: path.basename(resolved), path: resolved, realRoot };
+      this._emit({ type: 'project:opened', name: this.active.name, path: resolved });
+      return this.getActive();
+    }
 
   getActive() {
     return this.active ? { name: this.active.name, path: this.active.path } : null;
   }
 
   // ---- tree / read / write ----
-    async listFiles(relativePath = '') {
-      const root = await this.resolveProjectPath(relativePath);
+    async listFiles(relativePath = '', buildContext) {
+      const root = await this.resolveProjectPath(relativePath, buildContext);
       const out = [];
       let count = 0;
+      // Use buildContext's realRoot if available, otherwise fall back to active.
+      const realRoot = buildContext?.realRoot ?? this.active.realRoot;
       const walk = async (dir, prefix) => {
         let entries;
         try { entries = await fs.readdir(dir, { withFileTypes: true }); }
@@ -169,7 +203,7 @@ class ProjectManager {
           const full = path.join(dir, e.name);
           // Real-path validation for each entry to prevent symlink escapes during traversal.
           try {
-            await resolveWithinRealRoot(this.active.realRoot, full);
+            await resolveWithinRealRoot(realRoot, full);
           } catch {
             continue; // Skip entries that escape the real root.
           }
@@ -189,8 +223,8 @@ class ProjectManager {
       return out.sort((a, b) => (a.type === b.type ? a.path.localeCompare(b.path) : a.type === 'dir' ? -1 : 1));
     }
 
-    async readFile(relativePath) {
-      const full = await this.resolveProjectPath(relativePath);
+    async readFile(relativePath, buildContext) {
+      const full = await this.resolveProjectPath(relativePath, buildContext);
       let stat;
       try { stat = await fs.stat(full); } catch { throw new Error(`File not found: ${relativePath}`); }
       if (stat.isDirectory()) throw new Error(`Path is a directory, not a file: ${relativePath}`);
@@ -200,8 +234,8 @@ class ProjectManager {
       return fs.readFile(full, 'utf8');
     }
 
-    async writeFile(relativePath, content, { emit = true } = {}) {
-      const full = await this.resolveProjectPath(relativePath);
+    async writeFile(relativePath, content, { emit = true } = {}, buildContext) {
+      const full = await this.resolveProjectPath(relativePath, buildContext);
       if (isPathIgnored(relativePath)) throw new Error(`Refusing to write protected path: ${relativePath}`);
       if (!isExtAllowed(relativePath)) {
         // Allow writing the gamevolley metadata file specifically.
@@ -215,9 +249,9 @@ class ProjectManager {
       return { path: relativePath, bytes: Buffer.byteLength(content, 'utf8') };
     }
 
-    async deleteFile(relativePath, { explicit = false } = {}) {
+    async deleteFile(relativePath, { explicit = false } = {}, buildContext) {
       if (!explicit) throw new Error('Delete requires explicit confirmation (explicit: true).');
-      const full = await this.resolveProjectPath(relativePath);
+      const full = await this.resolveProjectPath(relativePath, buildContext);
       if (isPathIgnored(relativePath)) throw new Error(`Refusing to delete protected path: ${relativePath}`);
       try { await fs.unlink(full); }
       catch (e) { throw new Error(`Could not delete ${relativePath}: ${e.message}`); }
@@ -225,62 +259,65 @@ class ProjectManager {
       return true;
     }
 
-    async createDir(relativePath) {
-      const full = await this.resolveProjectPath(relativePath);
+    async createDir(relativePath, buildContext) {
+      const full = await this.resolveProjectPath(relativePath, buildContext);
       await fs.mkdir(full, { recursive: true });
       return true;
     }
 
   // ---- entry-point & project understanding ----
-  async detectEntryPoint() {
-    if (!this.active) throw new Error('No active project.');
-    const root = this.active.path;
-    const pkgPath = path.join(root, 'package.json');
-    let pkg = null;
-    try { pkg = JSON.parse(await fs.readFile(pkgPath, 'utf8')); } catch {}
+    async detectEntryPoint(buildContext) {
+      if (!this.active) throw new Error('No active project.');
+      this._assertBuildContext(buildContext);
+      const root = buildContext?.path ?? this.active.path;
+      const pkgPath = path.join(root, 'package.json');
+      let pkg = null;
+      try { pkg = JSON.parse(await fs.readFile(pkgPath, 'utf8')); } catch {}
 
-    if (pkg && pkg.scripts) {
-      const dev = pkg.scripts.dev || pkg.scripts.start;
-      if (dev) {
-        const lower = dev.toLowerCase();
-        let port = 5173;
-        if (/--port\s+(\d+)/.test(lower)) port = Number(lower.match(/--port\s+(\d+)/)[1]);
-        else if (/vite/.test(lower)) port = 5173;
-        else if (/next/.test(lower)) port = 3000;
-        else if (/webpack/.test(lower)) port = 8080;
-        return { type: 'devserver', command: 'npm run dev', url: `http://localhost:${port}`, framework: lower.includes('vite') ? 'vite' : lower.includes('next') ? 'next' : 'unknown' };
+      if (pkg && pkg.scripts) {
+        const dev = pkg.scripts.dev || pkg.scripts.start;
+        if (dev) {
+          const lower = dev.toLowerCase();
+          let port = 5173;
+          if (/--port\s+(\d+)/.test(lower)) port = Number(lower.match(/--port\s+(\d+)/)[1]);
+          else if (/vite/.test(lower)) port = 5173;
+          else if (/next/.test(lower)) port = 3000;
+          else if (/webpack/.test(lower)) port = 8080;
+          return { type: 'devserver', command: 'npm run dev', url: `http://localhost:${port}`, framework: lower.includes('vite') ? 'vite' : lower.includes('next') ? 'next' : 'unknown' };
+        }
       }
+      for (const cand of ['index.html', 'src/index.html', 'public/index.html', 'game/index.html', 'dist/index.html']) {
+        try { if ((await fs.stat(path.join(root, cand))).isFile()) return { type: 'file', path: cand }; } catch {}
+      }
+      // Fall back to any html file at root.
+      let entries = [];
+      try { entries = await fs.readdir(root); } catch {}
+      const html = entries.find((f) => f.toLowerCase().endsWith('.html'));
+      if (html) return { type: 'file', path: html };
+      return null;
     }
-    for (const cand of ['index.html', 'src/index.html', 'public/index.html', 'game/index.html', 'dist/index.html']) {
-      try { if ((await fs.stat(path.join(root, cand))).isFile()) return { type: 'file', path: cand }; } catch {}
-    }
-    // Fall back to any html file at root.
-    let entries = [];
-    try { entries = await fs.readdir(root); } catch {}
-    const html = entries.find((f) => f.toLowerCase().endsWith('.html'));
-    if (html) return { type: 'file', path: html };
-    return null;
-  }
 
-  // Compact, model-friendly summary: tree + entry point + manifest excerpts.
-  async getProjectSummary() {
-    const tree = await this.listFiles();
-    const entry = await this.detectEntryPoint().catch(() => null);
-    const root = this.active.path;
-    let manifest = '';
-    for (const f of ['package.json', 'README.md', 'index.html', 'game.js', 'main.js', 'src/main.js']) {
-      if (manifest.length > MAX_SUMMARY_BYTES) break;
-      try {
-        const t = await fs.readFile(path.join(root, f), 'utf8');
-        manifest += `\n--- ${f} ---\n${t.slice(0, 1500)}\n`;
-      } catch {}
+    // Compact, model-friendly summary: tree + entry point + manifest excerpts.
+    async getProjectSummary(buildContext) {
+      const tree = await this.listFiles('', buildContext);
+      const entry = await this.detectEntryPoint(buildContext).catch(() => null);
+      const root = buildContext?.path ?? this.active.path;
+      let manifest = '';
+      for (const f of ['package.json', 'README.md', 'index.html', 'game.js', 'main.js', 'src/main.js']) {
+        if (manifest.length > MAX_SUMMARY_BYTES) break;
+        try {
+          const t = await fs.readFile(path.join(root, f), 'utf8');
+          manifest += `\n--- ${f} ---\n${t.slice(0, 1500)}\n`;
+        } catch {}
+      }
+      const name = buildContext?.name ?? this.active.name;
+      return { name, entry, tree, manifest: manifest.slice(0, MAX_SUMMARY_BYTES) };
     }
-    return { name: this.active.name, entry, tree, manifest: manifest.slice(0, MAX_SUMMARY_BYTES) };
-  }
 
-  // Snapshot file contents/hashes for change detection around an agent run.
-    async snapshotHashes() {
-      const root = this.active.path;
+    // Snapshot file contents/hashes for change detection around an agent run.
+    async snapshotHashes(buildContext) {
+      const root = buildContext?.path ?? this.active.path;
+      const realRoot = buildContext?.realRoot ?? this.active.realRoot;
       const map = {};
       const walk = async (dir, prefix) => {
         let entries;
@@ -292,7 +329,7 @@ class ProjectManager {
           const full = path.join(dir, e.name);
           // Real-path validation to prevent symlink escapes during snapshot.
           try {
-            await resolveWithinRealRoot(this.active.realRoot, full);
+            await resolveWithinRealRoot(realRoot, full);
           } catch {
             continue; // Skip entries that escape the real root.
           }
