@@ -1,8 +1,7 @@
 // gamevolley.js — the GameVolley workspace front-end.
 //
 // Talks to the main process through the `pv` bridge (never touches fs/spawn
-// directly). Drives the three-role workflow (Creative Director -> Developer ->
-// Critic), shows live agent activity, and positions the embedded game preview.
+// directly). Drives the three-role workflow (Creative Director -> Developer ->\n// Critic), shows live agent activity, and positions the embedded game preview.
 (function () {
   const $ = (id) => document.getElementById(id);
   const store = {
@@ -14,6 +13,29 @@
   let activeProject = null;     // { name, path }
   let building = false;
   let eventSink = null;          // registered gameOnEvent callback
+  let isFullscreen = false;      // Track fullscreen state for persistence
+
+  // ---------- fullscreen persistence ----------
+  function getFullscreenState() {
+    try { return JSON.parse(localStorage.getItem('gv:fullscreen') || '{}'); } catch { return {}; }
+  }
+  function saveFullscreenState(state) {
+    try { localStorage.setItem('gv:fullscreen', JSON.stringify(state)); } catch {}
+  }
+  function applyPersistedFullscreen() {
+    const state = getFullscreenState();
+    isFullscreen = !!state.enabled;
+    // If we have a project open and fullscreen was enabled, re-enter fullscreen.
+    if (isFullscreen && activeProject) {
+      // Defer until layout is ready.
+      requestAnimationFrame(() => {
+        try { pv.previewFullscreen(); } catch {}
+        // Update button state if it exists.
+        const btn = $('gvFull');
+        if (btn) btn.classList.add('active');
+      });
+    }
+  }
 
   // ---------- view switching ----------
   function setView(v) {
@@ -393,36 +415,47 @@
   }
 
   // ---------- wiring ----------
-  function wire() {
-    $('tabGame').onclick = () => setView('game');
-    $('tabVolley').onclick = () => setView('volley');
-    $('gvNew').onclick = startCreate;
-    $('gvOpen').onclick = openExisting;
-    $('gvCreate').onclick = startCreate;
-    $('gvImprove').onclick = startImprove;
-    $('gvFix').onclick = startFix;
-    $('gvStop').onclick = stopBuild;
-    $('gvReload').onclick = () => { try { pv.previewReload(); } catch {} };
-    $('gvFull').onclick = () => { try { pv.previewFullscreen(); layoutPreview(); } catch {} };
-    $('gvOpenFolder').onclick = () => { try { pv.projectOpenFolder(); } catch {} };
-    layoutPreview();
-  }
-
-  async function boot() {
-    wire();
-    // Default to the GameVolley workspace. Volley remains one click away.
-    setView('game');
-    try { await loadRoles(); } catch {}
-    // Subscribe to streaming orchestration events.
-    if (window.pv && pv.gameOnEvent) {
-      pv.gameOnEvent((ev) => handleEvent(ev));
+    function wire() {
+      $('tabGame').onclick = () => setView('game');
+      $('tabVolley').onclick = () => setView('volley');
+      $('gvNew').onclick = startCreate;
+      $('gvOpen').onclick = openExisting;
+      $('gvCreate').onclick = startCreate;
+      $('gvImprove').onclick = startImprove;
+      $('gvFix').onclick = startFix;
+      $('gvStop').onclick = stopBuild;
+      $('gvReload').onclick = () => { try { pv.previewReload(); } catch {} };
+      $('gvFull').onclick = () => {
+        try {
+          pv.previewFullscreen();
+          isFullscreen = !isFullscreen;
+          saveFullscreenState({ enabled: isFullscreen });
+          $('gvFull').classList.toggle('active', isFullscreen);
+          // Re-layout after fullscreen transition.
+          setTimeout(layoutPreview, 300);
+        } catch {}
+      };
+      $('gvOpenFolder').onclick = () => { try { pv.projectOpenFolder(); } catch {} };
+      layoutPreview();
     }
-    // Reflect any project already open from a previous session.
-    try {
-      activeProject = await pv.projectGetActive();
-      if (activeProject) onProjectOpened();
-    } catch {}
-  }
+
+    async function boot() {
+      wire();
+      // Default to the GameVolley workspace. Volley remains one click away.
+      setView('game');
+      try { await loadRoles(); } catch {}
+      // Subscribe to streaming orchestration events.
+      if (window.pv && pv.gameOnEvent) {
+        pv.gameOnEvent((ev) => handleEvent(ev));
+      }
+      // Reflect any project already open from a previous session.
+      try {
+        activeProject = await pv.projectGetActive();
+        if (activeProject) onProjectOpened();
+      } catch {}
+      // Restore fullscreen state if it was enabled.
+      applyPersistedFullscreen();
+    }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
   else boot();
