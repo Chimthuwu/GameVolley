@@ -4,7 +4,9 @@
 
 **Describe a silly game idea. Watch multiple AI agents design, build, review and improve a real, playable game in your workspace — then play it right inside the app.**
 
-[![Download for Windows](https://img.shields.io/badge/Download-Windows%20.exe-blue?style=for-the-badge&logo=windows)](https://github.com/Chimthuwu/GameVolley/releases/latest)
+[![Download for Windows](https://img.shields.io/badge/Download-Windows%20.exe-blue?style=for-the-badge&logo=windows)](https://github.com/Chimthuwu/GameVolley/releases/latest/download/GameVolley-Windows-Setup-v1.3.0.exe)
+[![Download for macOS](https://img.shields.io/badge/Download-macOS%20.dmg-lightgrey?style=for-the-badge&logo=apple)](https://github.com/Chimthuwu/GameVolley/releases/latest/download/VolleyPrompt-macOS-v1.3.0.dmg)
+[![Download for Linux](https://img.shields.io/badge/Download-Linux%20AppImage-orange?style=for-the-badge&logo=linux)](https://github.com/Chimthuwu/GameVolley/releases/latest/download/VolleyPrompt-Linux-v1.3.0.AppImage)
 [![License: MIT](https://img.shields.io/badge/License-MIT-purple?style=for-the-badge)](LICENSE)
 
 </div>
@@ -56,6 +58,16 @@ npm run dist     # build a Windows installer
 
 3. Open **Settings** and connect a provider for the Creative Director / Critic (OpenRouter, Anthropic, Gemini CLI, or Ollama).
 4. Type an idea, hit **Create Game**.
+
+## Artifacts
+
+| Platform | Artifact name | Notes |
+|----------|---------------|-------|
+| Windows | `GameVolley - Windows Setup v<version>.exe` | NSIS installer, per-user or system install |
+| macOS   | `VolleyPrompt - macOS v<version>.dmg` | Notarized DMG, runs on Apple Silicon & Intel |
+| Linux   | `VolleyPrompt - Linux v<version>.AppImage` | Single-file executable, no install needed |
+
+All artifacts are built by GitHub Actions on every tag push. See [STYLING.md](STYLING.md) for the design system used across the app.
 
 ## Notes & limitations
 
