@@ -229,6 +229,19 @@ body.view-game #gameRoot > * {
 @media (prefers-reduced-motion: reduce) {
   .gv-agent-status-badge.working { animation: none; }
   .gv-agent-toggle, .gv-agent-output { transition: none; }
+  .gv-btn { transition: none; }
+  .gv-preview-controls button { transition: none; }
+  .gv-changes-clear { transition: none; }
+  .gv-tree-toggle { transition: none; }
+  .gv-tree-children { transition: none; }
+  .gv-agent-card { transition: none; }
+  .gv-agent-output { transition: none; }
+  .gv-activity-filter, .gv-activity-search { transition: none; }
+  .gv-activity-clear { transition: none; }
+  .gv-search { transition: none; }
+  .gv-preview-area { transition: none; }
+  #gvPreviewEmpty { transition: none; }
+  .gv-log-line { transition: none; }
 }
 #gvIdea { width: 100%; min-height: 56px; resize: vertical; background: var(--field, #0e1020); color: #eaf0ff; border: 1px solid var(--line, rgba(120,120,200,0.3)); border-radius: 8px; padding: 8px; font-family: inherit; font-size: 13px; }
 .gv-composer-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }

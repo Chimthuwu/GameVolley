@@ -35,20 +35,20 @@ $('btnSidebarToggle').onclick = () => setSidebarCollapsed(!sidebarEl.classList.c
 // so body text stays crisp and only the neon palette moves. Applied immediately to avoid
 // a flash of the default palette before the user's saved preference kicks in. ----
 const THEME_BASE_HSL = {
-  '--neon-cyan': [183, 100, 50],
-  '--neon-magenta': [344, 100, 59],
-  '--neon-green': [156, 100, 51],
-  '--neon-purple': [275, 100, 59],
+  '--neon-cyan': [183, 100, 46],
+  '--neon-magenta': [344, 83, 52],
+  '--neon-green': [156, 100, 45],
+  '--neon-purple': [275, 83, 52],
 };
 // The background, cards, titlebar and dropdown surfaces used to be fixed hexes, so the hue
 // slider only moved the accents and the app still looked purple. Same colours in HSL here.
 const THEME_SURFACE_HSL = {
   '--bg': [252, 50, 4],
-  '--bg-glow': [251, 65, 19],
+  '--bg-glow': [251, 65, 17],
   '--card': [252, 49, 10],
   '--titlebar-from': [253, 60, 6],
   '--panel': [275, 55, 8],
-  '--panel-hi': [263, 66, 19],
+  '--panel-hi': [263, 66, 17],
 };
 function applyTheme({ hue, sat, contrast }) {
   const root = document.documentElement.style;
@@ -2154,16 +2154,21 @@ const c = $('bgCanvas'); const ctx = c.getContext('2d');
 function resize(){ c.width=innerWidth; c.height=innerHeight; }
 resize(); addEventListener('resize', resize);
 // Particle colours come from the live theme, so the hue slider moves the backdrop too.
-let particleCyan = '#00f0ff', particlePurple = '#b026ff';
+let particleCyan = '#00d4e8', particlePurple = '#9d22e6';
 function readParticleColors() {
   const cs = getComputedStyle(document.documentElement);
-  particleCyan = cs.getPropertyValue('--neon-cyan').trim() || '#00f0ff';
-  particlePurple = cs.getPropertyValue('--neon-purple').trim() || '#b026ff';
+  particleCyan = cs.getPropertyValue('--neon-cyan').trim() || '#00d4e8';
+  particlePurple = cs.getPropertyValue('--neon-purple').trim() || '#9d22e6';
 }
 readParticleColors();
 document.addEventListener('vp-theme', readParticleColors);
+
+// Check for reduced motion preference
+const prefersReducedMotion = (typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
 let t=0;
-function frame(){ t+=0.008; ctx.clearRect(0,0,c.width,c.height);
+function frame(){
+  if (prefersReducedMotion) return; // Don't animate if user prefers reduced motion
+  t+=0.008; ctx.clearRect(0,0,c.width,c.height);
   for(let i=0;i<60;i++){
     const x=(Math.sin(t*0.7+i*1.3)*0.5+0.5)*c.width;
     const y=(Math.cos(t*0.5+i*0.9)*0.5+0.5)*c.height;
@@ -2176,7 +2181,14 @@ function frame(){ t+=0.008; ctx.clearRect(0,0,c.width,c.height);
   ctx.globalAlpha = 1;
   requestAnimationFrame(frame);
 }
-frame();
+if (!prefersReducedMotion) frame();
+
+// Listen for changes to reduced motion preference
+if (typeof window.matchMedia === 'function') {
+  window.matchMedia('(prefers-reduced-motion: reduce)').addEventListener('change', (e) => {
+    if (!e.matches && !t) frame(); // Restart animation if reduced motion is turned off
+  });
+}
 const panelOf = (role) => document.querySelector('.panel.' + role);
 const streaming = (role, on) => panelOf(role).classList.toggle('streaming', on);
 

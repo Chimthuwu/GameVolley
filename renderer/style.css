@@ -4,30 +4,30 @@
 
 :root {
   /* Base Backgrounds — Deep Void */
-  --bg: #07050f;
-  --card: #120d26;
+  --bg: #080610;
+  --card: #130e28;
 
-  /* Neon Accents (Glow-ready) */
-  --neon-cyan: #00f0ff;
-  --neon-magenta: #ff2a6d;
-  --neon-green: #05ffa1;
-  --neon-purple: #b026ff;
+  /* Neon Accents (Glow-ready) — Restrained: slightly desaturated for a more tasteful look */
+  --neon-cyan: #00d4e8;
+  --neon-magenta: #e8245c;
+  --neon-green: #00e690;
+  --neon-purple: #9d22e6;
 
-  /* Borders & Lines */
-  --line: rgba(176, 38, 255, 0.3);
-  --line-glow: rgba(176, 38, 255, 0.8);
+  /* Borders & Lines — More subtle */
+  --line: rgba(157, 34, 230, 0.22);
+  --line-glow: rgba(157, 34, 230, 0.65);
 
   /* Surfaces — themed by the hue/saturation/contrast controls too (see applyTheme) */
-  --bg-glow: #1d1150;
-  --titlebar-from: #0a0618;
-  --panel: #16091f;
-  --panel-hi: #2a1152;
-  --field: rgba(7, 5, 15, 0.7);
-  --bg-wash: rgba(70, 20, 120, 0.35);
+  --bg-glow: #1a1048;
+  --titlebar-from: #0b071a;
+  --panel: #180c22;
+  --panel-hi: #28104c;
+  --field: rgba(8, 6, 16, 0.72);
+  --bg-wash: rgba(65, 20, 110, 0.28);
 
   /* Text */
-  --txt: #e2dfff;
-  --dim: #8a84b0;
+  --txt: #e8e2f0;
+  --dim: #9a94b8;
 
   /* Scrollbar */
   --scrollbar-gradient: linear-gradient(45deg, var(--neon-cyan), var(--neon-purple), var(--neon-magenta));
@@ -742,12 +742,33 @@ a:hover { text-decoration: underline; text-shadow: 0 0 10px rgba(0, 240, 255, 0.
   .panel.streaming pre::after,
   .round-indicator::after,
   ::-webkit-scrollbar-thumb,
-  .dots i {
+  .dots i,
+  .folder-chip.processing .chip-thumb,
+  .hist-item.dragging,
+  .context-menu,
+  .toast-item,
+  .select-trigger .chev,
+  .theme-panel {
     animation: none !important;
+    transition: none !important;
   }
   .sidebar { transition: none; }
   .panel:hover { transform: none; }
   .big:hover, .big:active { transform: none; }
+  .tb-btn { transition: none; }
+  .chip-thumb { transition: none; }
+  .attachment-chip { transition: none; }
+  .ctx-node { transition: none; }
+  .ctx-load-more { transition: none; }
+  .model-ac-item { transition: none; }
+  .provider-card { transition: none; }
+  .hist-item { transition: none; }
+  .final-annotate { transition: none; }
+  .select-option { transition: none; }
+  .select-menu { transition: none; }
+  .prompt-card { transition: none; }
+  .modal { transition: none; }
+  .card { transition: none; }
 }
 
 /* === New shell: frameless titlebar + sidebar === */
