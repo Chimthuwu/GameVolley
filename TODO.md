@@ -18,7 +18,7 @@ Spec: Z:\HERMES\.hermes\attachments\pasted_content_2026-11-11_19-03-37-193_209f5
 
 ## P2 — UI/UX
 - [x] 3.1 [DONE this commit] Studio layout (explorer/viewport/agent-studio), fix 100vh+34px overflow, fullscreen bounds persist
-- [ ] 3.2 Agent cards (status, elapsed, expandable output)
+- [x] 3.2 [DONE this commit] Agent cards (status, elapsed, expandable output)
 - [ ] 3.3 Changes & Diff panel (real data only)
 - [x] 3.4 partial: auto-pick prefers free (pickAutoModel); explicit auto/prefer-free UI semantics still open
 - [ ] 3.5 Explorer tree (expand/collapse, icons, search, lazy)
