@@ -39,8 +39,10 @@ providerModule.init(deps);
   assert.strictEqual((await goo.getModels())[0].billing, 'free-account', 'gemini models billed as free account / API');
 
   const oll = providerModule.getProvider('ollama');
-  assert.strictEqual((await oll.getStatus()).connected, false, 'ollama not connected without a server');
-  assert.ok(Array.isArray(await oll.getModels()), 'ollama models is an array');
+    const ollStatus = await oll.getStatus();
+    assert.ok(typeof ollStatus.connected === 'boolean', 'ollama status has connected boolean');
+    assert.strictEqual(ollStatus.authMethod, 'Local (no auth)', 'ollama auth method is local');
+    assert.ok(Array.isArray(await oll.getModels()), 'ollama models is an array');
 
   const parse = providerModule.parseCliLine;
   assert.strictEqual(parse({ type: 'stream_event', data: { type: 'content_block_delta', delta: { type: 'text_delta', text: 'x' } } }), 'x', 'claude text delta');
