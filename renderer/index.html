@@ -217,9 +217,22 @@
       <div id="gvChanges" class="gv-changes-log"></div>
     </section>
     <section class="gv-activity">
-    <div class="gv-activity-head">AGENT ACTIVITY</div>
-    <div id="gvActivity" class="gv-activity-log"></div>
-  </section>
+        <div class="gv-activity-head">
+          <span class="gv-activity-title">AGENT ACTIVITY</span>
+          <div class="gv-activity-controls">
+            <select id="gvActivityRoleFilter" class="gv-activity-filter" aria-label="Filter by role">
+              <option value="">All roles</option>
+              <option value="director">🎬 Director</option>
+              <option value="developer">🛠 Developer</option>
+              <option value="critic">🔍 Critic</option>
+              <option value="system">⚙ System</option>
+            </select>
+            <input type="search" id="gvActivitySearch" class="gv-activity-search" placeholder="Search activity…" aria-label="Search activity log">
+            <button type="button" id="gvActivityClear" class="gv-activity-clear" title="Clear activity log" aria-label="Clear activity log">✕</button>
+          </div>
+        </div>
+        <div id="gvActivity" class="gv-activity-log"></div>
+      </section>
   <section class="gv-composer">
     <textarea id="gvIdea" placeholder="Describe a silly game idea — or tell GameVolley what to change…"></textarea>
     <div class="gv-composer-actions">

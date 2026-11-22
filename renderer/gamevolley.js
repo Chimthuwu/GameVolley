@@ -67,59 +67,143 @@
   window.addEventListener('resize', layoutPreview);
 
   // ---------- activity log ----------
-  // Streaming deltas append into ONE live line per role (closed by the next
-  // non-output event) instead of one log line per token chunk, which turned
-  // the panel into unreadable confetti.
-  let liveLine = null;
-  let liveRole = null;
-  const LIVE_MAX = 4000;
+    // Streaming deltas append into ONE live line per role (closed by the next
+    // non-output event) instead of one log line per token chunk, which turned
+    // the panel into unreadable confetti.
+    let liveLine = null;
+    let liveRole = null;
+    const LIVE_MAX = 4000;
+    const LOG_MAX_LINES = 500; // Bounded log size
 
-  function closeLiveLine() { liveLine = null; liveRole = null; }
+    // Filter state
+    let activityRoleFilter = ''; // 'director', 'developer', 'critic', 'system', or ''
+    let activitySearchQuery = '';
 
-  function addActivity(text, cls) {
-    const log = $('gvActivity');
-    if (!log) return;
-    const line = document.createElement('div');
-    line.className = 'gv-log-line' + (cls ? ' ' + cls : '');
-    line.textContent = text;
-    log.appendChild(line);
-    while (log.children.length > 400) log.removeChild(log.firstChild);
-    log.scrollTop = log.scrollHeight;
-  }
+    function closeLiveLine() { liveLine = null; liveRole = null; }
 
-  function appendStreamDelta(role, text) {
-    const log = $('gvActivity');
-    if (!log) return;
-    if (!liveLine || liveRole !== role) {
-      closeLiveLine();
-      liveRole = role;
-      liveLine = document.createElement('div');
-      liveLine.className = 'gv-log-line out gv-stream';
-      const tag = document.createElement('span');
-      tag.className = 'gv-stream-tag';
-      tag.textContent = `${role}: `;
-      const body = document.createElement('span');
-      body.textContent = text;
-      liveLine.appendChild(tag);
-      liveLine.appendChild(body);
-      log.appendChild(liveLine);
-    } else {
-      let body = liveLine.lastChild;
-      if (body.textContent.length > LIVE_MAX) body.textContent = body.textContent.slice(-LIVE_MAX) + '…';
-      else body.textContent += text;
-    }
-    // Scroll ONLY the log container. scrollIntoView() would also scroll
-    // documentElement (see the vanished-titlebar bug) — never use it here.
-    log.scrollTop = log.scrollHeight;
-  }
-  function setStatus(text, cls) {
-      const s = $('gvStatus');
-      if (!s) return;
-      s.textContent = text || '';
-      s.className = 'gv-status' + (cls ? ' ' + cls : '');
+    function getLineRole(line) {
+      // Determine the role from the line's content/classes
+      const text = line.textContent;
+      if (line.classList.contains('gv-stream')) {
+        const tag = line.querySelector('.gv-stream-tag');
+        if (tag) {
+          const roleText = tag.textContent.trim().toLowerCase();
+          if (roleText.startsWith('director')) return 'director';
+          if (roleText.startsWith('developer')) return 'developer';
+          if (roleText.startsWith('critic')) return 'critic';
+        }
+      }
+      // Check for role prefixes in the text
+      if (text.startsWith('🎬 Director') || text.startsWith('Director:')) return 'director';
+      if (text.startsWith('🛠 Developer') || text.startsWith('Developer:')) return 'developer';
+      if (text.startsWith('🔍 Critic') || text.startsWith('Critic:')) return 'critic';
+      // System messages (commands, file ops, status, errors without role prefix)
+      return 'system';
     }
 
-    // ---------- agent cards ----------
+    function matchesFilters(line) {
+      if (activityRoleFilter) {
+        const lineRole = getLineRole(line);
+        if (lineRole !== activityRoleFilter) return false;
+      }
+      if (activitySearchQuery) {
+        const text = line.textContent.toLowerCase();
+        if (!text.includes(activitySearchQuery)) return false;
+      }
+      return true;
+    }
+
+    function applyFilters() {
+      const log = $('gvActivity');
+      if (!log) return;
+      for (const line of log.children) {
+        if (line.classList.contains('gv-log-line')) {
+          line.classList.toggle('hidden-by-filter', !matchesFilters(line));
+        }
+      }
+    }
+
+    function addActivity(text, cls, role) {
+      const log = $('gvActivity');
+      if (!log) return;
+      const line = document.createElement('div');
+      line.className = 'gv-log-line' + (cls ? ' ' + cls : '');
+      if (role) line.dataset.role = role;
+      line.textContent = text;
+      log.appendChild(line);
+      // Apply current filters to the new line
+      if (!matchesFilters(line)) line.classList.add('hidden-by-filter');
+      // Bound the log size
+      while (log.children.length > LOG_MAX_LINES) log.removeChild(log.firstChild);
+      log.scrollTop = log.scrollHeight;
+    }
+
+    function appendStreamDelta(role, text) {
+      const log = $('gvActivity');
+      if (!log) return;
+      if (!liveLine || liveRole !== role) {
+        closeLiveLine();
+        liveRole = role;
+        liveLine = document.createElement('div');
+        liveLine.className = 'gv-log-line out gv-stream';
+        liveLine.dataset.role = role;
+        const tag = document.createElement('span');
+        tag.className = 'gv-stream-tag';
+        tag.textContent = `${roleLabel(role)}: `;
+        const body = document.createElement('span');
+        body.textContent = text;
+        liveLine.appendChild(tag);
+        liveLine.appendChild(body);
+        log.appendChild(liveLine);
+        // Apply current filters
+        if (!matchesFilters(liveLine)) liveLine.classList.add('hidden-by-filter');
+      } else {
+        let body = liveLine.lastChild;
+        if (body.textContent.length > LIVE_MAX) body.textContent = body.textContent.slice(-LIVE_MAX) + '…';
+        else body.textContent += text;
+      }
+      // Scroll ONLY the log container. scrollIntoView() would also scroll
+      // documentElement (see the vanished-titlebar bug) — never use it here.
+      log.scrollTop = log.scrollHeight;
+    }
+
+    function setStatus(text, cls) {
+        const s = $('gvStatus');
+        if (!s) return;
+        s.textContent = text || '';
+        s.className = 'gv-status' + (cls ? ' ' + cls : '');
+      }
+
+    // Wire up activity controls
+    function wireActivityControls() {
+      const roleFilter = $('gvActivityRoleFilter');
+      const searchInput = $('gvActivitySearch');
+      const clearBtn = $('gvActivityClear');
+
+      if (roleFilter) {
+        roleFilter.addEventListener('change', () => {
+          activityRoleFilter = roleFilter.value;
+          applyFilters();
+        });
+      }
+      if (searchInput) {
+        searchInput.addEventListener('input', () => {
+          activitySearchQuery = searchInput.value.toLowerCase();
+          applyFilters();
+        });
+      }
+      if (clearBtn) {
+        clearBtn.addEventListener('click', () => {
+          const log = $('gvActivity');
+          if (log) {
+            log.innerHTML = '';
+            closeLiveLine();
+          }
+        });
+      }
+    }
+
+      // ---------- agent cards ----------
     const agentCardState = {
       director: { status: 'idle', startTime: null, output: '', liveLine: null },
       developer: { status: 'idle', startTime: null, output: '', liveLine: null },
@@ -636,7 +720,7 @@
     await refreshCheckpoints();
     setStatus('Project open. Create or Improve when ready.');
     // If it already has a playable entry, show it.
-    try { const r = await pv.previewLoad(); if (r && r.ok) addActivity('Loaded existing game into preview.', 'ok'); }
+    try { const r = await pv.previewLoad(); if (r && r.ok) addActivity('Loaded existing game into preview.', 'ok', 'system'); }
     catch (e) { /* nothing playable yet */ }
   }
 
@@ -679,7 +763,7 @@
       $('gvStop').classList.remove('hidden');
       $('gvCreate').disabled = true;
       setStatus('Starting…');
-      addActivity(`▶ ${cfg.mode === 'create' ? 'Creating' : cfg.mode === 'improve' ? 'Improving' : 'Fixing'}: ${cfg.idea || cfg.report}`, 'cmd');
+      addActivity(`▶ ${cfg.mode === 'create' ? 'Creating' : cfg.mode === 'improve' ? 'Improving' : 'Fixing'}: ${cfg.idea || cfg.report}`, 'cmd', 'system');
       try {
         const res = await pv.agentStart({ ...cfg, roles: currentRoles(), maxRounds: 3 });
         if (!res || !res.ok) setStatus(res && res.message ? res.message : 'Could not start.', 'err');
@@ -705,8 +789,8 @@
           setStatus(`Phase: ${ev.phase} (round ${ev.round}/${ev.maxRounds})`);
           break;
         case 'agent:status':
-          closeLiveLine();
-          addActivity(`${roleLabel(ev.role)}: ${ev.status} — ${ev.message || ''}`, ev.status === 'error' ? 'err' : '');
+                  closeLiveLine();
+                  addActivity(`${roleLabel(ev.role)}: ${ev.status} — ${ev.message || ''}`, ev.status === 'error' ? 'err' : '', ev.role);
           // Update agent card
           if (ev.role === 'director' || ev.role === 'developer' || ev.role === 'critic') {
             if (ev.status === 'working') {
@@ -728,45 +812,45 @@
           break;
         case 'stage':
           closeLiveLine();
-          addActivity(`— ${ev.stage}${ev.detail ? ` (${ev.detail})` : ''}`, 'cmd');
+          addActivity(`— ${ev.stage}${ev.detail ? ` (${ev.detail})` : ''}`, 'cmd', 'system');
           break;
         case 'project:changed':
                 closeLiveLine();
-                addActivity(`  ✓ ${ev.operation} ${ev.path}`, 'file');
+                addActivity(`  ✓ ${ev.operation} ${ev.path}`, 'file', 'system');
                 // Update changes & diff panel
                 addChange(ev.path, ev.operation, ev.diff);
                 break;
         case 'preview:load':
-          $('gvPreviewEmpty') && $('gvPreviewEmpty').classList.add('hidden');
-          addActivity('Preview loading…', 'ok');
-          layoutPreview();
-          break;
-        case 'preview:ready':
-          setStatus('Game is live in the preview ▶', 'ok');
-          addActivity('Preview ready.', 'ok');
-          break;
-        case 'preview:error':
-          addActivity('Preview error: ' + (ev.message || ev.code || 'unknown'), 'err');
-          setStatus('Preview failed to load.', 'err');
+                  $('gvPreviewEmpty') && $('gvPreviewEmpty').classList.add('hidden');
+                  addActivity('Preview loading…', 'ok', 'system');
+                  layoutPreview();
+                  break;
+                case 'preview:ready':
+                  setStatus('Game is live in the preview ▶', 'ok');
+                  addActivity('Preview ready.', 'ok', 'system');
+                  break;
+                case 'preview:error':
+                  addActivity('Preview error: ' + (ev.message || ev.code || 'unknown'), 'err', 'system');
+                  setStatus('Preview failed to load.', 'err');
           break;
         case 'review:result':
-          addActivity(`  ⚠ [${ev.severity}] ${ev.message}`, ev.severity === 'HIGH' ? 'err' : 'warn');
-          break;
-        case 'game:done': {
-          const r = ev.result || {};
-          $('gvStop').classList.add('hidden');
-          $('gvCreate').disabled = false;
-          building = false;
-          // Reset all agent cards to idle after a brief moment
-          setTimeout(resetAgentCards, 2000);
-          const issues = (r.knownIssues || []).map((m) => '• ' + m).join('\n');
-          addActivity(`✔ Build complete in ${r.rounds || '?'} round(s).${issues ? '\nRemaining issues:\n' + issues : ''}`, 'ok');
-          setStatus('Done — play it above.', 'ok');
-          break;
-        }
-        case 'error':
-          addActivity('Error: ' + ev.message, 'err');
-          setStatus('Error: ' + ev.message, 'err');
+                  addActivity(`  ⚠ [${ev.severity}] ${ev.message}`, ev.severity === 'HIGH' ? 'err' : 'warn', 'critic');
+                  break;
+                case 'game:done': {
+                  const r = ev.result || {};
+                  $('gvStop').classList.add('hidden');
+                  $('gvCreate').disabled = false;
+                  building = false;
+                  // Reset all agent cards to idle after a brief moment
+                  setTimeout(resetAgentCards, 2000);
+                  const issues = (r.knownIssues || []).map((m) => '• ' + m).join('\n');
+                  addActivity(`✔ Build complete in ${r.rounds || '?'} round(s).${issues ? '\nRemaining issues:\n' + issues : ''}`, 'ok', 'system');
+                  setStatus('Done — play it above.', 'ok');
+                  break;
+                }
+                case 'error':
+                  addActivity('Error: ' + ev.message, 'err', 'system');
+                  setStatus('Error: ' + ev.message, 'err');
           break;
         case 'agent:idle':
           $('gvStop').classList.add('hidden');
@@ -806,22 +890,23 @@
       }
 
       async function boot() {
-        wire();
-        // Default to the GameVolley workspace. Volley remains one click away.
-        setView('game');
-        try { await loadRoles(); } catch {}
-        // Subscribe to streaming orchestration events.
-        if (window.pv && pv.gameOnEvent) {
-          pv.gameOnEvent((ev) => handleEvent(ev));
-        }
-        // Reflect any project already open from a previous session.
-        try {
-          activeProject = await pv.projectGetActive();
-          if (activeProject) onProjectOpened();
-        } catch {}
-        // Restore fullscreen state if it was enabled.
-        applyPersistedFullscreen();
-      }
+              wire();
+              wireActivityControls();
+              // Default to the GameVolley workspace. Volley remains one click away.
+              setView('game');
+              try { await loadRoles(); } catch {}
+              // Subscribe to streaming orchestration events.
+              if (window.pv && pv.gameOnEvent) {
+                pv.gameOnEvent((ev) => handleEvent(ev));
+              }
+              // Reflect any project already open from a previous session.
+              try {
+                activeProject = await pv.projectGetActive();
+                if (activeProject) onProjectOpened();
+              } catch {}
+              // Restore fullscreen state if it was enabled.
+              applyPersistedFullscreen();
+            }
 
       if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
       else boot();

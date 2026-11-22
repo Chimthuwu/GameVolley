@@ -22,7 +22,7 @@ Spec: Z:\HERMES\.hermes\attachments\pasted_content_2026-11-11_19-03-37-193_209f5
 - [x] 3.3 [DONE this commit] Changes & Diff panel (real data only)
 - [x] 3.4 partial: auto-pick prefers free (pickAutoModel); explicit auto/prefer-free UI semantics still open
 - [x] 3.5 [DONE this commit] Explorer tree (expand/collapse, icons, search, lazy)
-- [ ] 3.6 Activity panel (role filter, search, clear, bounded)
+- [~] 3.6 Activity panel (role filter, search, clear, bounded)
 - [ ] 3.7 Visual polish (reduced-motion, restrained accent)
 
 ## Docs/distribution
