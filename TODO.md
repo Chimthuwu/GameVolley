@@ -64,7 +64,10 @@ Hard rule: **the OpenRouter API key never syncs to the server.** It stays device
 ## Workstream A — Synced accounts (web ⇄ desktop)
 
 ### A1. Unified frontend (do first — it's the tax on everything)
-- [ ] Make `renderer/` and `site/` share **one** source for `app.js`/`store.js`/styles (build step emits both, or web loads the same files Electron uses). Kill the hand-copied fork.
+- [~] Make `renderer/` and `site/` share **one** source for `app.js`/`store.js`/styles (build step emits both, or web loads the same files Electron uses). Kill the hand-copied fork.
+  - [x] Build infrastructure: src/ structure, build-shared.mjs, package.json hooks for dist/site:deploy
+  - [ ] Extract common code to src/shared/app-core.js and src/shared/style.css
+  - [ ] Add conditional compilation for platform-specific code
 - [ ] Confirm `window.pv` is the *only* environment-specific surface; everything Electron-vs-web divergent routes through it.
 - [ ] Acceptance: editing UI logic once updates both the desktop build and the deployed site; `npm run dist` and `npm run site:deploy` both pick it up.
 
