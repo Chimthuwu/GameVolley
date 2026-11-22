@@ -196,19 +196,26 @@
     <div id="gvCheckpoints" class="gv-checkpoints"><span class="gv-muted">None yet</span></div>
   </aside>
   <section class="gv-preview">
-    <div class="gv-preview-bar">
-      <span class="gv-preview-title">GAME PREVIEW</span>
-      <div class="gv-preview-controls">
-        <button id="gvReload" title="Reload">⟳</button>
-        <button id="gvFull" title="Fullscreen">⛶</button>
-        <button id="gvOpenFolder" title="Open folder">📂</button>
+      <div class="gv-preview-bar">
+        <span class="gv-preview-title">GAME PREVIEW</span>
+        <div class="gv-preview-controls">
+          <button id="gvReload" title="Reload">⟳</button>
+          <button id="gvFull" title="Fullscreen">⛶</button>
+          <button id="gvOpenFolder" title="Open folder">📂</button>
+        </div>
       </div>
-    </div>
-    <div id="gvPreviewArea" class="gv-preview-area">
-      <div class="gv-preview-empty" id="gvPreviewEmpty">No game loaded yet. Create a game and it will play here.</div>
-    </div>
-  </section>
-  <section class="gv-activity">
+      <div id="gvPreviewArea" class="gv-preview-area">
+        <div class="gv-preview-empty" id="gvPreviewEmpty">No game loaded yet. Create a game and it will play here.</div>
+      </div>
+    </section>
+    <section class="gv-changes">
+      <div class="gv-changes-head">
+        <span class="gv-changes-title">CHANGES & DIFF</span>
+        <button id="gvChangesClear" class="gv-changes-clear" title="Clear changes">✕</button>
+      </div>
+      <div id="gvChanges" class="gv-changes-log"></div>
+    </section>
+    <section class="gv-activity">
     <div class="gv-activity-head">AGENT ACTIVITY</div>
     <div id="gvActivity" class="gv-activity-log"></div>
   </section>

@@ -10,7 +10,7 @@ html, body { overflow: hidden; }
 body.view-game #gameRoot {
   display: grid;
   grid-template-columns: 290px 1fr;
-  grid-template-rows: 54px minmax(0, 1fr) 210px 156px;
+  grid-template-rows: 54px minmax(0, 1fr) 160px 210px 156px;
   /* Use 100dvh for mobile address bar safety; subtract titlebar (34px) exactly.
      Gap and padding are accounted for in row sizing via minmax(0, 1fr) on preview. */
   height: calc(100dvh - 34px);
@@ -75,7 +75,7 @@ body.view-game #gameRoot > * {
 
 /* Sidebar */
 .gv-sidebar {
-  grid-column: 1; grid-row: 2 / 5; overflow: auto;
+  grid-column: 1; grid-row: 2 / 6; overflow: auto;
   background: var(--panel, #11131f); border: 1px solid var(--line, rgba(120,120,200,0.25));
   border-radius: 10px; padding: 12px;
 }
@@ -106,8 +106,31 @@ body.view-game #gameRoot > * {
 .gv-preview-area { flex: 1; position: relative; background: #05060a; }
 .gv-preview-empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; padding: 20px; color: var(--muted-foreground, #6b7290); font-size: 14px; }
 
+/* Changes & Diff */
+.gv-changes {
+  grid-column: 2; grid-row: 3; display: flex; flex-direction: column; overflow: hidden;
+  background: var(--panel, #11131f); border: 1px solid var(--line, rgba(120,120,200,0.25)); border-radius: 10px; padding: 8px 10px;
+}
+.gv-changes-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.gv-changes-title { font-family: 'Orbitron', sans-serif; font-size: 11px; letter-spacing: 1px; color: var(--neon-cyan, #2ee6ff); }
+.gv-changes-clear { width: 20px; height: 20px; border: none; background: transparent; color: var(--muted-foreground, #7a8296); cursor: pointer; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 12px; }
+.gv-changes-clear:hover { background: rgba(255,255,255,0.06); color: #eaf0ff; }
+.gv-changes-log { flex: 1; overflow: auto; font-family: 'Space Mono', monospace; font-size: 11px; line-height: 1.45; }
+.gv-change-item { padding: 2px 0; white-space: pre-wrap; word-break: break-word; border-bottom: 1px solid var(--line, rgba(120,120,200,0.1)); }
+.gv-change-item:last-child { border-bottom: none; }
+.gv-change-path { color: var(--neon-green, #2effae); font-weight: 600; }
+.gv-change-op { color: var(--muted-foreground, #9aa3b2); font-size: 10px; text-transform: uppercase; }
+.gv-change-op.created { color: var(--neon-green, #2effae); }
+.gv-change-op.modified { color: var(--neon-cyan, #2ee6ff); }
+.gv-change-op.deleted { color: #ff7b8f; }
+.gv-change-diff { margin-top: 4px; padding-left: 8px; font-size: 10px; color: #8fa3c4; overflow: auto; max-height: 120px; }
+.gv-change-diff-line { white-space: pre; }
+.gv-change-diff-line.added { color: var(--neon-green, #2effae); }
+.gv-change-diff-line.removed { color: #ff7b8f; }
+.gv-change-diff-line.context { color: var(--muted-foreground, #7a8296); }
+
 /* Activity */
-.gv-activity { grid-column: 2; grid-row: 3; display: flex; flex-direction: column; overflow: hidden; background: var(--panel, #11131f); border: 1px solid var(--line, rgba(120,120,200,0.25)); border-radius: 10px; padding: 8px 10px; }
+.gv-activity { grid-column: 2; grid-row: 4; display: flex; flex-direction: column; overflow: hidden; background: var(--panel, #11131f); border: 1px solid var(--line, rgba(120,120,200,0.25)); border-radius: 10px; padding: 8px 10px; }
 .gv-activity-head { font-family: 'Orbitron', sans-serif; font-size: 11px; letter-spacing: 1px; color: var(--neon-magenta, #ff2eb4); margin-bottom: 6px; }
 .gv-activity-log { flex: 1; overflow: auto; font-family: 'Space Mono', monospace; font-size: 12px; line-height: 1.45; }
 .gv-log-line { padding: 1px 0; color: #cdd6e8; white-space: pre-wrap; word-break: break-word; }
@@ -123,7 +146,7 @@ body.view-game #gameRoot > * {
 .gv-log-line.gv-stream { color: #8fa3c4; opacity: 0.92; }
 
 /* Composer */
-.gv-composer { grid-column: 2; grid-row: 4; display: flex; flex-direction: column; gap: 8px; background: var(--panel, #11131f); border: 1px solid var(--line, rgba(120,120,200,0.25)); border-radius: 10px; padding: 10px; }
+.gv-composer { grid-column: 2; grid-row: 5; display: flex; flex-direction: column; gap: 8px; background: var(--panel, #11131f); border: 1px solid var(--line, rgba(120,120,200,0.25)); border-radius: 10px; padding: 10px; }
 
 /* Agent Cards */
 .gv-agent-cards { display: flex; flex-direction: column; gap: 8px; }

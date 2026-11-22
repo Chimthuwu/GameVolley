@@ -127,11 +127,12 @@
     };
 
     function resetAgentCards() {
-      for (const role of ['director', 'developer', 'critic']) {
-        agentCardState[role] = { status: 'idle', startTime: null, output: '', liveLine: null };
-        updateAgentCard(role);
-      }
-    }
+          for (const role of ['director', 'developer', 'critic']) {
+            agentCardState[role] = { status: 'idle', startTime: null, output: '', liveLine: null };
+            updateAgentCard(role);
+          }
+          clearChanges();
+        }
 
     function updateAgentCard(role) {
       const state = agentCardState[role];
@@ -223,15 +224,66 @@
     }
 
     // Wire up toggle buttons
-    document.addEventListener('click', (e) => {
-      const toggle = e.target.closest('.gv-agent-toggle');
-      if (toggle) {
-        const card = toggle.closest('.gv-agent-card');
-        if (card) toggleAgentOutput(card.dataset.role);
-      }
-    });
+        document.addEventListener('click', (e) => {
+          const toggle = e.target.closest('.gv-agent-toggle');
+          if (toggle) {
+            const card = toggle.closest('.gv-agent-card');
+            if (card) toggleAgentOutput(card.dataset.role);
+          }
+        });
 
-    // ---------- project tree / checkpoints ----------
+        // ---------- changes & diff panel ----------
+        const changesLog = $('gvChanges');
+        const changesClearBtn = $('gvChangesClear');
+        const MAX_CHANGES = 50;
+
+        function addChange(path, operation, diff) {
+          if (!changesLog) return;
+          // Remove empty state if present
+          const emptyState = changesLog.querySelector('.gv-muted');
+          if (emptyState) emptyState.remove();
+
+          const item = document.createElement('div');
+          item.className = 'gv-change-item';
+          const opClass = operation === 'created' ? 'created' : operation === 'modified' ? 'modified' : 'deleted';
+          let diffHtml = '';
+          if (diff) {
+            const lines = diff.split('\n').slice(0, 30).map(line => {
+              if (line.startsWith('+')) return `<div class="gv-change-diff-line added">${escapeHtml(line)}</div>`;
+              if (line.startsWith('-')) return `<div class="gv-change-diff-line removed">${escapeHtml(line)}</div>`;
+              return `<div class="gv-change-diff-line context">${escapeHtml(line)}</div>`;
+            }).join('');
+            diffHtml = `<div class="gv-change-diff">${lines}</div>`;
+          }
+          item.innerHTML = `
+            <div class="gv-change-path">${escapeHtml(path)}</div>
+            <span class="gv-change-op ${opClass}">${operation}</span>
+            ${diffHtml}
+          `;
+          changesLog.insertBefore(item, changesLog.firstChild);
+          // Limit number of changes shown
+          while (changesLog.children.length > MAX_CHANGES) {
+            changesLog.removeChild(changesLog.lastChild);
+          }
+        }
+
+        function clearChanges() {
+          if (!changesLog) return;
+          changesLog.innerHTML = '<span class="gv-muted">No changes yet</span>';
+        }
+
+        function escapeHtml(text) {
+          const div = document.createElement('div');
+          div.textContent = text;
+          return div.innerHTML;
+        }
+
+        // Wire up clear button
+        if (changesClearBtn) {
+          changesClearBtn.onclick = clearChanges;
+        }
+
+        // ---------- project tree / checkpoints ----------
   async function refreshTree() {
     const box = $('gvProjects');
     if (!box) return;
@@ -496,9 +548,11 @@
           addActivity(`— ${ev.stage}${ev.detail ? ` (${ev.detail})` : ''}`, 'cmd');
           break;
         case 'project:changed':
-          closeLiveLine();
-          addActivity(`  ✓ ${ev.operation} ${ev.path}`, 'file');
-          break;
+                closeLiveLine();
+                addActivity(`  ✓ ${ev.operation} ${ev.path}`, 'file');
+                // Update changes & diff panel
+                addChange(ev.path, ev.operation, ev.diff);
+                break;
         case 'preview:load':
           $('gvPreviewEmpty') && $('gvPreviewEmpty').classList.add('hidden');
           addActivity('Preview loading…', 'ok');
