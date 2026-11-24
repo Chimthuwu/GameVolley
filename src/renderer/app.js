@@ -1061,7 +1061,7 @@ function addAttachmentFiles(fileList) {
   for (const file of Array.from(fileList)) {
     const ext = extOf(file.name);
     if (!ALLOWED_EXT.has(ext)) { rejected.push(`${file.name} (unsupported type)`); continue; }
-    if (file.size > MAX_FILE_BYTES) { rejected.push(`${file.name} (over 25 MB)`); continue; }
+    if (file.size > MAX_FILE_BYTES) { rejected.push(`${file.name} (over 64 MB)`); continue; }
     if (isDuplicateFile(file)) continue;
     if (pendingAttachments.length >= MAX_FILES) { rejected.push(`${file.name} (max ${MAX_FILES} attachments)`); continue; }
     let url = null;
