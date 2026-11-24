@@ -1,9 +1,5 @@
 const $ = (id) => document.getElementById(id);
 const show = (id, on = true) => $(id).classList.toggle('hidden', !on);
-const store = {
-  get: (k, d) => { try { return localStorage.getItem(k) ?? d; } catch { return d; } },
-  set: (k, v) => { try { localStorage.setItem(k, v); } catch {} },
-};
 
 
 function toast(msg, ms = 6000) {
@@ -177,11 +173,6 @@ $('btnSaveKey').onclick = async () => {
   if (r.ok) { await pv.saveKey(k); setTimeout(() => show('modal', false), 700); }
 };
 
-// ---- Settings (⚙): mirrored default models for every volley + cost-saving options ----
-const SETTINGS_KEY = 'vpSettings';
-const loadSettings = () => { try { return JSON.parse(store.get(SETTINGS_KEY, '{}')) || {}; } catch { return {}; } };
-const saveSettings = (o) => store.set(SETTINGS_KEY, JSON.stringify(o));
-
 function openSettings() {
   const s = loadSettings();
   $('setWriter').value = s.writer || store.get('author', '');
@@ -254,12 +245,7 @@ $('btnSaveSettings').onclick = () => {
   toast('Settings saved.', 4000);
 };
 $('settingsClose').onclick = () => hideSettingsPage();
-$('btnEditKey').onclick = () => { hideSettingsPage(); openModal(false); };
-
-// ---- Model autocomplete: custom, scrollable, badged. The native <input list> dropdown
-// refused to show options while the field already had text in it, and its list can't be
-// reliably scrolled — this replaces it everywhere a model id is picked. ----
-let MODEL_ROWS = []; // OpenRouter model catalogue (used for pricing/vision hints)
+$('btnEditKey').onclick = () => { hideSettingsPage(); openModal(false); }; // OpenRouter model catalogue (used for pricing/vision hints)
 let MODEL_ROWS_BY_INPUT = new WeakMap(); // per-input model rows (provider-aware)
 async function setupModelAutocomplete(input) {
   const list = document.createElement('div');
@@ -633,19 +619,6 @@ $('btnSwapRetry').onclick = () => pushRunModels(true);
 });
 
 $('btnStart').onclick = async () => { const cfg = await composeCfgFromComposer(); if (cfg) beginRun(cfg); };
-
-
-// ---- Model pairs: a Writer/Reviewer combo you can reload for a particular kind of work ----
-const PAIRS_KEY = 'vpModelPairs';
-const RECOMMENDED_PAIRS = [
-  { name: 'Balanced value — DeepSeek v3.1 + Llama 3.3 70B', author: 'deepseek/deepseek-chat-v3.1', critic: 'meta-llama/llama-3.3-70b-instruct', note: 'The pair this app shipped with. A couple of cents per volley; neither model sees images, so attachments are described for the Reviewer instead.' },
-  { name: 'Free & capable — Gemma 4 31B + Nemotron 3.5 VL', author: 'google/gemma-4-31b-it:free', critic: 'nvidia/nemotron-3.5-super-vl:free', note: 'Best free pair: $0, both vision-capable, very long context. The free pool queues at busy times, so expect occasional waiting.' },
-  { name: 'Best paid value — DeepSeek v4 Flash + Claude Haiku 5.5', author: 'deepseek/deepseek-v4-flash', critic: 'anthropic/claude-haiku-5.5', note: 'Fraction of a cent per round at verified prices ($0.09 / $0.10 per M input), both fast, and Haiku adds vision for images.' },
-  { name: 'Frontier quality — GPT-6.1 Terra + DeepSeek v4 Pro', author: 'openai/gpt-6.1-terra', critic: 'deepseek/deepseek-v4-pro', note: 'Sharpest output of the four, roughly 5–10× the cost per volley. Save it for the prompt you will actually ship.' },
-];
-const loadPairs = () => { try { return JSON.parse(store.get(PAIRS_KEY, '{}')) || {}; } catch { return {}; } };
-const storePairs = (p) => store.set(PAIRS_KEY, JSON.stringify(p));
-const prettyModel = (id) => String(id || '').replace(/^.*\//, '').replace(/:free$/, '').replace(/[-_.]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 function refreshPairSelect() {
   const sel = $('pairSelect'); if (!sel) return;
   sel.textContent = '';
@@ -698,15 +671,11 @@ $('btnDelPair').onclick = () => {
 };
 refreshPairSelect();
 populateProviderSelects();
-
-// ---- Presets: save/load a whole composer state (idea + models + settings knobs) ----
-const PRESETS_KEY = 'vpPresets';
 const STARTER_PRESETS = {
   mvp: { name: 'Focused MVP', project: 'New MVP', rounds: 2, auto: false, idea: 'Build a small, polished app for [target users] that helps them [primary goal]. Start with the smallest useful version. Describe the main user flow, essential screens, data to store, important empty/error states, and clear testable completion criteria. Avoid accounts, paid services, and unnecessary dependencies unless essential.' },
   product: { name: 'Distinctive product website', project: 'Product website', rounds: 3, auto: false, idea: 'Design and build a distinctive, high-impact landing page for [product] aimed at [audience]. Explain the product value within the first screen, show its real workflow with [available screenshots/demos], establish a coherent visual direction, and include responsive, accessible interactions and a clear call to action. Define the sections, content, and measurable done criteria. Do not invent product capabilities or add a backend.' },
   bugfix: { name: 'Focused bug fix', project: 'Bug fix', rounds: 2, auto: false, idea: 'Investigate and fix this bug: [describe observed behavior]. Expected behavior: [describe expected behavior]. Reproduce it, trace the cause before editing, make the smallest safe fix, and add or update a focused regression check. Preserve existing conventions and avoid unrelated refactors. Report files changed and checks actually run.' },
 };
-const loadPresets = () => { try { return JSON.parse(store.get(PRESETS_KEY, '{}')) || {}; } catch { return {}; } };
 function refreshPresetSelect() {
   const sel = $('presetSelect'); if (!sel) return;
   const presets = loadPresets();
@@ -1041,20 +1010,9 @@ $('resultHead').addEventListener('click', () => {
   const collapsed = $('result').classList.toggle('collapsed');
   $('resultCollapse').textContent = collapsed ? '▸' : '▾';
 });
-
-// ---- Attachment UI shell (Phase 2 — local-only, not wired into pv.start) ----
-const ALLOWED_EXT = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif', '.pdf', '.txt', '.md', '.markdown', '.json', '.csv', '.js', '.jsx', '.ts', '.tsx', '.py', '.html', '.htm', '.css']);
-const IMAGE_EXT = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif']);
 // Desktop: a beefier budget is fine — payloads stay local until the request is sent.
 // Note individual OpenRouter providers may still reject very large image payloads.
 const MAX_FILE_BYTES = 64 * 1024 * 1024;
-const MAX_FILES = 10;
-let pendingAttachments = [];
-let attachmentIdSeq = 0;
-
-const extOf = (name) => { const i = name.lastIndexOf('.'); return i === -1 ? '' : name.slice(i).toLowerCase(); };
-const formatSize = (bytes) => bytes < 1024 ? `${bytes} B` : bytes < 1024 * 1024 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-const isDuplicateFile = (file) => pendingAttachments.some((a) => a.file.name === file.name && a.file.size === file.size && a.file.lastModified === file.lastModified);
 
 function addAttachmentFiles(fileList) {
   const rejected = [];
@@ -1069,14 +1027,6 @@ function addAttachmentFiles(fileList) {
     pendingAttachments.push({ id: ++attachmentIdSeq, file, url });
   }
   if (rejected.length) toast('Skipped: ' + rejected.join(', '), 8000);
-  renderAttachments();
-}
-
-function removeAttachment(id) {
-  const idx = pendingAttachments.findIndex((a) => a.id === id);
-  if (idx === -1) return;
-  const [removed] = pendingAttachments.splice(idx, 1);
-  if (removed.url) URL.revokeObjectURL(removed.url);
   renderAttachments();
 }
 
@@ -1550,26 +1500,6 @@ $('ctxAttach').onclick = async () => {
 // ---- Phase 3: serialize attachments for the real request (renderer-side only; main.js re-validates) ----
 // ~90MB of encoded text ≈ the desktop 64MB decoded budget base64'd (×4/3) + headroom
 const MAX_TOTAL_SERIALIZED_CHARS = 90 * 1024 * 1024;
-
-const readFileAsDataURL = (file) => new Promise((resolve, reject) => {
-  const r = new FileReader();
-  r.onload = () => resolve(r.result);
-  r.onerror = () => reject(r.error || new Error('Failed to read ' + file.name));
-  r.readAsDataURL(file);
-});
-const readFileAsText = (file) => new Promise((resolve, reject) => {
-  const r = new FileReader();
-  r.onload = () => resolve(r.result);
-  r.onerror = () => reject(r.error || new Error('Failed to read ' + file.name));
-  r.readAsText(file);
-});
-
-// Vision models only ever see a static frame anyway — a 10MB animated GIF uploads pure
-// risk and cost. Anything over budget gets downscaled/re-encoded (first frame for GIFs)
-// before it's base64'd into the request.
-const VISION_MAX_FILE_BYTES = 2 * 1024 * 1024;
-const VISION_MAX_DIM = 1600;
-let imagesScaled = false;
 async function downscaleForVision(file, maxDim = VISION_MAX_DIM, quality = 0.85, force = false) {
   if (!force && file.size <= VISION_MAX_FILE_BYTES) return readFileAsDataURL(file);
   imagesScaled = true;
@@ -1920,14 +1850,6 @@ loadHistory();
 // load found an empty list and never fired — that is why right-click did nothing.
 const historyEl = $('history');
 const contextMenu = $('contextMenu');
-let contextTarget = null; // { kind: 'run'|'project', name, title, key }
-
-function closeContextMenu() {
-  if (!contextMenu) return;
-  contextMenu.classList.add('hidden');
-  contextMenu.classList.remove('visible');
-  contextTarget = null;
-}
 
 function openContextMenu(e, target) {
   if (!contextMenu) return;
