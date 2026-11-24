@@ -4,6 +4,16 @@
 //   // @if:web ... // @endif      — only in web build
 //   // @platform:renderer ...    — single line only in Electron build
 //   // @platform:web ...         — single line only in web build
+//
+// Wrapped in an IIFE: the platform-specific app.js this gets concatenated with
+// (src/renderer/app.js / src/web/app.js) still declares its own top-level
+// `store`, `toast`, `applyTheme`, etc. — unifying those is separate follow-up
+// work (see TODO.md). Without this wrapper, build:shared's straight
+// concatenation collides on every shared identifier ("Identifier 'store' has
+// already been declared") and the whole bundle fails to parse. Only
+// `window.__vpShared` (consumed by gamevolley.js going forward) needs to
+// escape this scope.
+(function () {
 
 // ---- Store utilities --------------------------------------------------------
 const store = {
@@ -77,9 +87,9 @@ function applyTheme({ hue, sat, contrast }) {
   document.dispatchEvent(new Event('vp-theme'));
 }
 
-// ---- Escape HTML ------------------------------------------------------------
+// ---- Escape HTML -------------------------------------------------------------
 function escapeHtml(s) {
-  return s.replace(/[&<>"']/g, (c) => ({ '&': '&', '<': '<', '>': '>', '"': '"', "'": ''' }[c]));
+  return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
 // ---- Settings management ----------------------------------------------------
@@ -571,3 +581,5 @@ function enhanceSelect(sel) { if (!sel || sel.dataset.enhanced) return; sel.data
 
 // Expose shared utilities globally
 window.__vpShared = { store, toast, applyTheme, escapeHtml, loadSettings, saveSettings, setupModelAutocomplete, populateProviderSelects, applyProviderToField, applyAllProviderRows, wireProviderSelect, loadPairs, storePairs, refreshPairSelect, setupPairSelect, loadPresets, refreshPresetSelect, setupPresetSelect, refreshVisionHints, diffOps, renderLineDiff, askText, askConfirm, runHistoryAction, enhanceSelect, addAttachmentFiles, removeAttachment, renderAttachments, downscaleForVision, readFileAsDataURL, readFileAsText, IMAGE_EXT, extOf, formatSize };
+
+})();

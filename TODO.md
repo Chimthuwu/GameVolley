@@ -2,6 +2,40 @@
 
 Spec: Z:\HERMES\.hermes\attachments\pasted_content_2026-11-11_19-03-37-193_209f53.txt (full text there).
 
+## AUDIT (2026-11-24) — app was broken, now fixed + verified; A1 still has real follow-up work
+
+Ground truth from inspecting the actual code and running the test suite, not from the `[x]` labels below — several of which describe real, working code, confirmed independently (see 0.4).
+
+### 0.1 — [x] FIXED: `escapeHtml` syntax error crashed renderer + site
+`src/shared/app-core.js` had a leftover, broken duplicate `escapeHtml` (an HTML-entity map with `"'": '''` — three literal quote chars, a `SyntaxError`). Replaced with a correct standalone implementation (see 0.2 for why it needed to stay standalone rather than deferring to the platform files' own copy).
+
+### 0.2 — [x] FIXED: A1 "unified frontend" concatenation crashed on duplicate top-level identifiers
+`npm run build:shared` concatenates `src/shared/app-core.js` with `src/renderer/app.js` (→ `renderer/app.js`) and with `src/web/app.js` (→ `site/app.js`). `src/renderer/app.js` still has its own full copies of 51 of `app-core.js`'s 53 top-level identifiers (`store`, `applyTheme`, `loadPairs`, `addAttachmentFiles`, etc.) — same for `src/web/app.js` (46/53). Concatenation → `const store = {...}` declared twice in one scope → hard `SyntaxError`, renderer and site both failed to load entirely (confirmed via `node -c` and `tests/smoke.test.js`: 0 provider cards rendered).
+- **Investigated deleting the duplicates from the platform files first** (the originally-planned fix) — **rejected**: a direct AST diff (via the `typescript` package, comparing top-level statements) showed several of `app-core.js`'s versions are not straight extractions but a *simpler* parallel implementation — e.g. `renderAttachments` in `src/renderer/app.js` also handles `pendingFolders`, which `app-core.js`'s version doesn't. Deleting the platform copies in favor of `app-core.js`'s would have silently dropped that feature.
+- **Fix applied instead**: wrapped `src/shared/app-core.js`'s body in an IIFE, so none of its identifiers leak into the shared script scope the platform file is concatenated into — the only thing it still exposes is `window.__vpShared` (confirmed unused anywhere else in the codebase today, so this is a no-op risk-wise; it exists for `gamevolley.js` to adopt later, which currently has its own inline copies of what it needs, e.g. its own `escapeHtml`). This fixes the crash with zero behavior change to either platform's actual UI.
+- **Still real follow-up work** (this is what A1's unchecked checkboxes below should mean going forward): `app-core.js` is not yet true shared code — it's a parallel, simpler reimplementation that only `gamevolley.js` could safely adopt today. Properly finishing A1 means diffing each duplicated function for real behavioral differences (not just text), porting any feature gaps (e.g. `pendingFolders` handling) into `app-core.js`, then actually deleting the platform-file copies — not blindly, function by function, with a test/manual pass after each.
+- Verified: `npm run build:shared && node -c renderer/app.js && node -c site/app.js` → both parse clean. `npm test` → 93/93 pass (`tests/smoke.test.js` now renders all 5 provider cards). `npm run test:e2e` → real Electron app launches, loads history, right-click menus, rename/move/delete on volleys and folders — all pass end-to-end, not just "parses."
+
+### 0.3 — [x] FIXED: unrelated real regression in `lib/providers.js`
+`OllamaProvider.getStatus()` only returned `authMethod: 'Local (no auth)'` on the success branch — if the `fetch` to `localhost:11434` failed or 404'd (e.g. Ollama not running, true in CI/most dev machines), it returned `{ connected: false }` with `authMethod` missing entirely. `authMethod` describes the auth *mechanism*, not whether the service happens to be reachable right now, so it should always be present. Fixed to return it in both branches.
+
+### 0.4 — Re-verified against actual code (not just commit messages) — genuinely solid, no action needed
+Confirmed by reading the source + passing tests, not just trusting the `[x]`:
+- Checkpoint/snapshot manager (1.3): snapshot+diff, create/modify/delete detection — tests pass.
+- Project-manager path safety (2.2): traversal rejected, protected-file writes refused, delete requires explicit flag — tests pass.
+- Preview server hardening (1.2): traversal/symlink-escape/hidden-file blocking — tests pass.
+- Provider-dev strict parser (2.5): rejects truncated blocks, one-shot recovery, refuses path escapes — tests pass.
+- Windows shim spawn handling (1.4): quoting, `.cmd`/`.bat` resolution — tests pass.
+- No TODO/FIXME/HACK debt markers found in `main.js`/`preload.js`/`src/lib`; no new path-traversal or command-injection issues found beyond what's already covered by tests.
+
+### 0.5 — Still open exactly as flagged below, re-confirmed
+2.3 (readiness checks vs fixed delays, dev-server detection, app-quit cleanup), 3.4 (auto-pick UI semantics), the 30s OpenRouter timeout BUG, live-key smoke test, and site deploy `[!]` — all still genuinely unfinished, no new code found for any of them.
+
+### Priority order from here
+1. ~~Get the app loading and tests green again~~ — done this session (0.1–0.3); `npm test` is 93/93 and the real Electron e2e passes.
+2. **A1 proper** (see 0.2's note): go through `app-core.js`'s duplicated functions one at a time, port any real feature gaps from the platform-file versions, then delete the platform copies — verified with `npm test` + `npm run test:e2e` after each batch, not all at once.
+3. Then resume the pre-existing P1/P2/Workstream-A/B backlog below.
+
 ## P0 — critical
 - [x] 1.1 [DONE a0d9f03] npm ci sync (lockfile missing jsdom deps) + CI: Node 22 deploy, tests gate deploy, keep win/mac/linux builds
 - [x] 1.2 [DONE this commit] Preview server hardening + HTTP security tests (secrets/hidden/symlink/traversal, keep assets working)
