@@ -169,3 +169,34 @@ Everything stays on the account the site is already deployed to. One `wrangler`,
 - [BUG] **`main.js` must add a hard ~30 s timeout** so a missing/stalled OpenRouter response can't hang it — this exact stall is what makes a volley hang (and why the Hermes plugin caps every HTTP call with a per-call timeout).
 
 **Note:** a Hermes **`/volley`** Discord plugin now exists (`~/.hermes/plugins/volley-prompt`) — it reuses this app's exact Writer/Reviewer systems, presets, folder/GitHub filters and OpenRouter key, so "Send to Hermes" (B1) has a target today.
+
+---
+
+# VibeGame MCP — new project, to be run via `/sesh` through Hermes
+
+> Not part of GameVolley/VolleyPrompt itself — a separate, new repo/project. Logged here per request so it can be picked up as a Hermes `/sesh` task. Full spec was pasted in chat on 2026-11-24; condensed below.
+
+**Vision:** A universal MCP server + shared game-development library so any AI assistant (ChatGPT, Claude, DeepSeek, Gemini, GameVolley) can search templates/skills/mechanics/assets and assemble, build, run, test and repair a complete playable browser game from a one-line prompt. Philosophy: reuse working foundations, invent the funny stuff (comedy-game focus is a deliberate differentiator).
+
+**Architecture (4 layers):**
+- A. AI client integrations (provider-agnostic adapters)
+- B. VibeGame MCP server (TypeScript/Node, official MCP SDK) — search/retrieve templates, skills, mechanics; create/modify projects; drive execution
+- C. Game knowledge library — indexed templates, skills, mechanics, assets, docs, with metadata (engine, language, deps, licence, compatibility)
+- D. Local Game Builder — isolated workspaces, template copy/adapt, file edits, dep install, dev server, browser preview (Playwright), console capture, tests, packaging
+
+**MVP scope (first milestone):**
+- TS MCP server + SQLite resource index
+- 5 verified templates: single-file HTML arcade, Phaser 2D platformer, Three.js FPS, Three.js third-person, Three.js physics sandbox
+- Small set of Three.js/Phaser dev skills + search
+- Template file retrieval, local project creation, basic browser execution (Playwright)
+- One working external MCP client connection
+- Goal: AI asks for a ridiculous game → finds a template → modifies it → produces a working playable browser game
+
+**Candidate source repos to inspect/ingest (untrusted until reviewed — check licence/deps/security before indexing):**
+momozi1996/momozi-VibeGaming-Skills, majidmanzarpour/threejs-game-skills, sausi-7/games, Mudroljub/Three.js-Games, shipshitgames/skills, LeanEntropy/threejs-phaser-game-skills, gamedev-skills/awesome-gamedev-agent-skills, dragnoz/game-creation-skills, GrayWagner/phaser-examples, magejosh/one-page-games
+
+**Roadmap phases (after MVP):** testing/repair automation (Playwright-based) → comedy game systems (ragdolls, vehicles, exaggerated physics, procedural events) → multi-provider integration (ChatGPT/Claude/DeepSeek/Gemini) → dashboard for library management → GameVolley integration (Creative Director/Developer roles reuse the shared library instead of duplicating templates).
+
+**Security requirements carried over:** isolated project workspaces, filesystem access restricted to authorised dirs, no unrestricted shell from AI tool calls, no auto-executing untrusted imported code, execution timeouts/resource limits, no API keys exposed to the AI.
+
+- [ ] Kick off via `/sesh` in Hermes: scaffold the `VibeGame-MCP` repo (structure per spec: `apps/mcp-server`, `apps/local-builder`, `apps/dashboard`, `packages/*`, `library/*`, `sources/*`, `projects/`, `docs/`), set up the MCP server skeleton, resource manifest format, and SQLite index — then begin Phase 1 (import/inspect the first 2-3 candidate repos, basic search).
