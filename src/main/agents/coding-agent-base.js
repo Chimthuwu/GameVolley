@@ -79,7 +79,13 @@ class CodingAgentBase {
         cwd: projectPath,
         stdinText,
         signal,
-        onOutput: (line) => { output += line + '\n'; onEvent({ type: 'output', agent: this.id, text: line }); },
+        onOutput: (line) => {
+          output += line + '\n';
+          // Stream-json agents (Claude Code) parse their NDJSON lines into clean
+          // text; plain-text agents pass lines through unchanged.
+          const text = typeof this.parseOutputLine === 'function' ? this.parseOutputLine(line) : line;
+          if (text !== null && text !== undefined && text !== '') onEvent({ type: 'output', agent: this.id, text });
+        },
         onDiagnostic: (text) => onEvent({ type: 'diagnostic', agent: this.id, text }),
         idleMs: 240000,
       });
