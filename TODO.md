@@ -264,3 +264,15 @@ momozi1996/momozi-VibeGaming-Skills, majidmanzarpour/threejs-game-skills, sausi-
 - 2026-11-25 — "How to render the A3 pairing QR with no QR library installed?" Chose a self-contained fixed-version-2 QR encoder in `src/shared/qr.js` (SVG output, no network, no dependency). CHECKPOINT SHA: `157ce4e6ccf1195655d99becb1682701c8e470dd` (pushed). Reason: a third-party QR image service would leak the pairing secret; dropping QR would violate the written requirement.
 - 2026-11-25 — "Which transport for the direct Hermes handoff?" Chose CLI fallback (`hermes chat -q`, detached argv) as the working default; gateway `/v1/runs` is opt-in behind a token setting. CHECKPOINT SHA: `f533d616ad6c58ed1bd03ca66d677d2057ab2ceb` (pushed). Reason: no token available and the owner explicitly ruled out Discord.
 
+## Inbox (agent-proposed)
+- [ ] **Give icon-only buttons real accessible names** [P2] [accessibility] [size:S]
+  Why: several icon buttons in both shells rely on `title` alone (e.g. `btnSavePreset`, `btnDelPreset`, `utilityClose`, the `data-copy` mini buttons, titlebar min/max/close). `title` is not a reliable accessible name for screen readers.
+  Done when: every icon-only `<button>` in `src/web/index.html` and `src/renderer/index.html` has an `aria-label` (or visually hidden text), and a jsdom test asserts no icon-only button is missing one.
+  Hints: buttons whose text content is only an emoji/glyph or an SVG need it; text buttons do not. Share the audit test with `tests/pv-surface.test.js`.
+
+- [ ] **Avoid stringifying full history once a second in sync-boot** [P2] [performance] [size:S]
+  Why: `setInterval(watchLocalChanges, 1000)` calls `JSON.stringify(collectState())`, which serialises up to 50 stored volleys every second even while idle.
+  Done when: idle CPU cost is bounded by a cheap change signal (e.g. a revision counter or a `storage` event hook) instead of a full serialise, and the 2 s debounced push still fires after real changes.
+  Hints: `src/shared/sync-boot.js`; keep the behaviour covered by `tests/sync-client.test.js`.
+
+
