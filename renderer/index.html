@@ -16,6 +16,14 @@
     <div class="theme-dropdown-wrap">
       <button class="tb-btn" id="btnTheme" title="Theme" aria-label="Theme" aria-expanded="false">🎨</button>
       <div class="theme-panel hidden" id="themePanel">
+        <div class="theme-swatches" id="themeSwatches" role="radiogroup" aria-label="Theme preset">
+          <button type="button" class="theme-swatch" role="radio" data-theme-preset="synthwave" title="Synthwave" aria-label="Theme: Synthwave" style="--sw1:#080610;--sw2:#e8245c;--sw3:#00d4e8"></button>
+          <button type="button" class="theme-swatch" role="radio" data-theme-preset="midnight" title="Midnight" aria-label="Theme: Midnight" style="--sw1:#050a16;--sw2:#4d8dff;--sw3:#00d4e8"></button>
+          <button type="button" class="theme-swatch" role="radio" data-theme-preset="emerald" title="Emerald Terminal" aria-label="Theme: Emerald Terminal" style="--sw1:#040704;--sw2:#00e690;--sw3:#35d9a0"></button>
+          <button type="button" class="theme-swatch" role="radio" data-theme-preset="ember" title="Ember" aria-label="Theme: Ember" style="--sw1:#0f0503;--sw2:#ff5f3d;--sw3:#ffb254"></button>
+          <button type="button" class="theme-swatch" role="radio" data-theme-preset="mono" title="Mono" aria-label="Theme: Mono" style="--sw1:#0a0a0a;--sw2:#d4d4d4;--sw3:#8f8f8f"></button>
+          <button type="button" class="theme-swatch" role="radio" data-theme-preset="light" title="Light" aria-label="Theme: Light" style="--sw1:#f5f3f9;--sw2:#6a1fc0;--sw3:#c2185b"></button>
+        </div>
         <label>Hue<input type="range" id="themeHue" min="-180" max="180" value="0"></label>
         <label>Saturation<input type="range" id="themeSat" min="0" max="200" value="100"></label>
         <label>Contrast<input type="range" id="themeContrast" min="50" max="150" value="100"></label>

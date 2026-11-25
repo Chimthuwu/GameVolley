@@ -93,6 +93,133 @@ const readFileAsDataURL = (file) => new Promise((resolve, reject) => { const r =
 
 const readFileAsText = (file) => new Promise((resolve, reject) => { const r = new FileReader(); r.onload = () => resolve(r.result); r.onerror = () => reject(r.error || new Error('Failed to read ' + file.name)); r.readAsText(file); });
 
+// ---- Theme presets (shared data, top level) --------------------------------
+// Every themed var in :root, per preset, as an explicit CSS value. The platform
+// files apply these directly and use the hue/sat/contrast sliders as an OFFSET
+// on the chosen preset (identity offsets reproduce the preset verbatim).
+// New presets must define every name in THEME_VARS.
+const THEME_VARS = ['--bg', '--bg-glow', '--card', '--titlebar-from', '--panel', '--panel-hi', '--field', '--bg-wash', '--line', '--line-glow', '--neon-cyan', '--neon-magenta', '--neon-green', '--neon-purple', '--txt', '--dim'];
+const THEMES = {
+  synthwave: { label: 'Synthwave', scheme: 'dark', vars: {
+    '--bg': '#080610', '--bg-glow': '#1a1048', '--card': '#130e28', '--titlebar-from': '#0b071a',
+    '--panel': '#180c22', '--panel-hi': '#28104c',
+    '--field': 'rgba(8, 6, 16, 0.72)', '--bg-wash': 'rgba(65, 20, 110, 0.28)',
+    '--line': 'rgba(157, 34, 230, 0.22)', '--line-glow': 'rgba(157, 34, 230, 0.65)',
+    '--neon-cyan': '#00d4e8', '--neon-magenta': '#e8245c', '--neon-green': '#00e690', '--neon-purple': '#9d22e6',
+    '--txt': '#e8e2f0', '--dim': '#9a94b8',
+  } },
+  midnight: { label: 'Midnight', scheme: 'dark', vars: {
+    '--bg': '#050a16', '--bg-glow': '#0a1c3e', '--card': '#0a1428', '--titlebar-from': '#040911',
+    '--panel': '#0a162c', '--panel-hi': '#122a54',
+    '--field': 'rgba(5, 10, 22, 0.72)', '--bg-wash': 'rgba(30, 70, 160, 0.26)',
+    '--line': 'rgba(0, 170, 255, 0.24)', '--line-glow': 'rgba(0, 170, 255, 0.6)',
+    '--neon-cyan': '#00d4e8', '--neon-magenta': '#4d8dff', '--neon-green': '#2dd4bf', '--neon-purple': '#8b9dff',
+    '--txt': '#e2e9f5', '--dim': '#8fa0bd',
+  } },
+  emerald: { label: 'Emerald Terminal', scheme: 'dark', vars: {
+    '--bg': '#040704', '--bg-glow': '#0a1f0e', '--card': '#0a130b', '--titlebar-from': '#020502',
+    '--panel': '#081108', '--panel-hi': '#102412',
+    '--field': 'rgba(4, 7, 4, 0.75)', '--bg-wash': 'rgba(0, 140, 60, 0.18)',
+    '--line': 'rgba(0, 230, 144, 0.24)', '--line-glow': 'rgba(0, 230, 144, 0.6)',
+    '--neon-cyan': '#00e6a8', '--neon-magenta': '#46e08b', '--neon-green': '#00e690', '--neon-purple': '#35d9a0',
+    '--txt': '#c9f2d6', '--dim': '#6fa07f',
+  } },
+  ember: { label: 'Ember', scheme: 'dark', vars: {
+    '--bg': '#0f0503', '--bg-glow': '#3b1409', '--card': '#1d0d08', '--titlebar-from': '#0a0402',
+    '--panel': '#1a0b06', '--panel-hi': '#35140b',
+    '--field': 'rgba(15, 5, 3, 0.72)', '--bg-wash': 'rgba(190, 70, 15, 0.2)',
+    '--line': 'rgba(255, 120, 45, 0.25)', '--line-glow': 'rgba(255, 120, 45, 0.6)',
+    '--neon-cyan': '#ffb254', '--neon-magenta': '#ff5f3d', '--neon-green': '#ff9147', '--neon-purple': '#ff6b6b',
+    '--txt': '#f4e3d7', '--dim': '#b89e8f',
+  } },
+  mono: { label: 'Mono', scheme: 'dark', vars: {
+    '--bg': '#0a0a0a', '--bg-glow': '#1d1d1d', '--card': '#141414', '--titlebar-from': '#060606',
+    '--panel': '#101010', '--panel-hi': '#232323',
+    '--field': 'rgba(10, 10, 10, 0.75)', '--bg-wash': 'rgba(255, 255, 255, 0.07)',
+    '--line': 'rgba(255, 255, 255, 0.22)', '--line-glow': 'rgba(255, 255, 255, 0.55)',
+    '--neon-cyan': '#ececec', '--neon-magenta': '#b8b8b8', '--neon-green': '#d4d4d4', '--neon-purple': '#a8a8a8',
+    '--txt': '#fafafa', '--dim': '#8f8f8f',
+  } },
+  light: { label: 'Light', scheme: 'light', vars: {
+    '--bg': '#f5f3f9', '--bg-glow': '#e9e2f7', '--card': '#ffffff', '--titlebar-from': '#edeaf6',
+    '--panel': '#faf8fd', '--panel-hi': '#f0eafb',
+    '--field': 'rgba(255, 255, 255, 0.85)', '--bg-wash': 'rgba(157, 34, 230, 0.07)',
+    '--line': 'rgba(110, 70, 190, 0.28)', '--line-glow': 'rgba(110, 70, 190, 0.55)',
+    '--neon-cyan': '#007f9e', '--neon-magenta': '#c2185b', '--neon-green': '#00875a', '--neon-purple': '#6a1fc0',
+    '--txt': '#241e33', '--dim': '#5e5774',
+  } },
+};
+const THEME_ORDER = ['synthwave', 'midnight', 'emerald', 'ember', 'mono', 'light'];
+
+const themeHslClamp = (n) => Math.min(100, Math.max(0, n));
+
+// hex (#rgb/#rrggbb), rgb()/rgba() and hsl()/hsla() -> { h, s, l, a } (0-360 / 0-100).
+function parseThemeColor(value) {
+  const v = String(value || '').trim();
+  let m = /^#([0-9a-f]{3})$/i.exec(v);
+  if (m) {
+    const [r, g, b] = m[1].split('').map((c) => parseInt(c + c, 16));
+    return themeRgbToHsl(r, g, b, 1);
+  }
+  m = /^#([0-9a-f]{6})$/i.exec(v);
+  if (m) {
+    const n = parseInt(m[1], 16);
+    return themeRgbToHsl((n >> 16) & 255, (n >> 8) & 255, n & 255, 1);
+  }
+  m = /^rgba?\(([^)]+)\)$/i.exec(v);
+  if (m) {
+    const p = m[1].split(',').map((s) => parseFloat(s));
+    if (p.length < 3 || p.slice(0, 3).some((x) => !Number.isFinite(x))) return null;
+    return themeRgbToHsl(p[0], p[1], p[2], p.length > 3 && Number.isFinite(p[3]) ? p[3] : 1);
+  }
+  m = /^hsla?\(([^)]+)\)$/i.exec(v);
+  if (m) {
+    const p = m[1].split(',').map((s) => parseFloat(s));
+    if (p.length < 3 || p.slice(0, 3).some((x) => !Number.isFinite(x))) return null;
+    return { h: (((p[0] % 360) + 360) % 360), s: themeHslClamp(p[1]), l: themeHslClamp(p[2]), a: p.length > 3 && Number.isFinite(p[3]) ? Math.min(1, Math.max(0, p[3])) : 1 };
+  }
+  return null;
+}
+
+function themeRgbToHsl(r, g, b, a) {
+  r /= 255; g /= 255; b /= 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  const l = (max + min) / 2;
+  if (max === min) return { h: 0, s: 0, l: l * 100, a };
+  const d = max - min;
+  const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+  let h;
+  if (max === r) h = ((g - b) / d + (g < b ? 6 : 0)) / 6;
+  else if (max === g) h = ((b - r) / d + 2) / 6;
+  else h = ((r - g) / d + 4) / 6;
+  return { h: h * 360, s: s * 100, l: l * 100, a };
+}
+
+// Offset one parsed preset colour by the slider values. Treatments (matching the
+// original hand-tuned math): hue rotates; sat scales and, past 100%, pushes
+// lightness toward the vivid 50% pivot; contrast scales dark bases (l <= 40)
+// multiplicatively (capped at 40 — a midpoint curve is invisible down there) and
+// brighter bases through a midpoint S-curve. Alpha is preserved.
+function shiftThemeColor(base, { hue = 0, sat = 100, contrast = 100 } = {}) {
+  if (!base) return null;
+  const satF = Math.min(2, Math.max(0, sat / 100));
+  const conF = Math.min(1.5, Math.max(0.5, contrast / 100));
+  const h = (((base.h + hue) % 360) + 360) % 360;
+  const s = themeHslClamp(base.s * satF);
+  let l = base.l;
+  if (satF > 1) l -= (l - 50) * (satF - 1) * 0.8;
+  if (base.l <= 40) {
+    l = Math.min(40, themeHslClamp(base.l * conF * conF * (satF > 1 ? 1 + (satF - 1) * 0.5 : 1)));
+  } else {
+    l = themeHslClamp((((l / 100) - 0.5) * conF + 0.5) * 100);
+  }
+  const r0 = (n) => Math.round(n);
+  const a = base.a === undefined ? 1 : base.a;
+  return a >= 1
+    ? `hsl(${r0(h)}, ${r0(s)}%, ${r0(l)}%)`
+    : `hsla(${r0(h)}, ${r0(s)}%, ${r0(l)}%, ${a})`;
+}
+
 (function () {
 
 // ---- Toast system -----------------------------------------------------------
@@ -600,7 +727,7 @@ async function runHistoryAction(action, target) {
 function enhanceSelect(sel) { if (!sel || sel.dataset.enhanced) return; sel.dataset.enhanced = '1'; const wrap = document.createElement('div'); wrap.className = 'select-wrap'; const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'select-trigger'; btn.setAttribute('aria-haspopup', 'listbox'); btn.setAttribute('aria-expanded', 'false'); const label = document.createElement('span'); label.className = 'select-label'; const chev = document.createElement('span'); chev.className = 'chev'; chev.textContent = '▾'; chev.setAttribute('aria-hidden', 'true'); btn.append(label, chev); const menu = document.createElement('div'); menu.className = 'select-menu hidden'; menu.setAttribute('role', 'listbox'); sel.parentNode.insertBefore(wrap, sel); wrap.append(sel, btn, menu); const rows = () => [...menu.children]; const render = () => { const cur = sel.selectedIndex >= 0 ? sel.options[sel.selectedIndex] : null; const full = cur ? cur.textContent : ''; label.textContent = full.split(' — ')[0]; btn.title = full; btn.dataset.value = sel.value; rows().forEach((r) => r.setAttribute('aria-selected', String(r.dataset.value === sel.value))); }; const build = () => { menu.textContent = ''; [...sel.options].forEach((o) => { const row = document.createElement('div'); row.className = 'select-option'; row.setAttribute('role', 'option'); row.dataset.value = o.value; row.textContent = o.textContent; row.addEventListener('click', () => { pick(o.value); close(); btn.focus(); }); menu.append(row); }); render(); }; const pick = (v) => { sel.value = v; sel.dispatchEvent(new Event('change', { bubbles: true })); render(); }; const active = () => rows().find((r) => r.classList.contains('active')); const move = (dir) => { const list = rows(); if (!list.length) return; const i = list.indexOf(active()); const next = list[Math.max(0, Math.min(list.length - 1, (i < 0 ? (dir > 0 ? -1 : 0) : i) + dir))]; list.forEach((r) => r.classList.remove('active')); next.classList.add('active'); next.scrollIntoView({ block: 'nearest' }); }; const open = () => { menu.classList.remove('hidden'); wrap.classList.add('open'); btn.setAttribute('aria-expanded', 'true'); const cur = rows().find((r) => r.getAttribute('aria-selected') === 'true') || rows()[0]; if (cur) { rows().forEach((r) => r.classList.remove('active')); cur.classList.add('active'); cur.scrollIntoView({ block: 'nearest' }); } }; function close() { menu.classList.add('hidden'); wrap.classList.remove('open'); btn.setAttribute('aria-expanded', 'false'); rows().forEach((r) => r.classList.remove('active')); } const toggle = () => (menu.classList.contains('hidden') ? open() : close()); btn.addEventListener('click', (e) => { e.preventDefault(); toggle(); }); btn.addEventListener('keydown', (e) => { if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); if (menu.classList.contains('hidden')) open(); else move(e.key === 'ArrowDown' ? 1 : -1); } else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); if (menu.classList.contains('hidden')) open(); else { const a = active(); if (a) pick(a.dataset.value); close(); } } else if (e.key === 'Escape') { close(); } }); document.addEventListener('click', (e) => { if (!wrap.contains(e.target)) close(); }); window.addEventListener('blur', close); const desc = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value'); if (desc?.get && desc?.set) Object.defineProperty(sel, 'value', { configurable: true, get() { return desc.get.call(sel); }, set(v) { desc.set.call(sel, v); render(); } }); const lab = sel.closest('label'); if (lab) { sel.setAttribute('aria-label', lab.textContent.replace(/\s+/g, ' ').trim() || 'Choose an option'); lab.htmlFor = ''; } build(); }
 
 // Expose shared utilities globally
-window.__vpShared = { store, toast, applyTheme, escapeHtml, loadSettings, saveSettings, setupModelAutocomplete, populateProviderSelects, applyProviderToField, applyAllProviderRows, wireProviderSelect, loadPairs, storePairs, refreshPairSelect, setupPairSelect, loadPresets, refreshPresetSelect, setupPresetSelect, refreshVisionHints, diffOps, renderLineDiff, askText, askConfirm, runHistoryAction, enhanceSelect, addAttachmentFiles, removeAttachment, renderAttachments, downscaleForVision, readFileAsDataURL, readFileAsText, IMAGE_EXT, extOf, formatSize };
+window.__vpShared = { store, toast, applyTheme, escapeHtml, loadSettings, saveSettings, setupModelAutocomplete, populateProviderSelects, applyProviderToField, applyAllProviderRows, wireProviderSelect, loadPairs, storePairs, refreshPairSelect, setupPairSelect, loadPresets, refreshPresetSelect, setupPresetSelect, refreshVisionHints, diffOps, renderLineDiff, askText, askConfirm, runHistoryAction, enhanceSelect, addAttachmentFiles, removeAttachment, renderAttachments, downscaleForVision, readFileAsDataURL, readFileAsText, IMAGE_EXT, extOf, formatSize, THEMES, THEME_ORDER, THEME_VARS, parseThemeColor, shiftThemeColor };
 
 })();
 
@@ -633,76 +760,50 @@ function setSidebarCollapsed(collapsed) {
 setSidebarCollapsed(store.get('sidebarCollapsed', '0') === '1');
 $('btnSidebarToggle').onclick = () => setSidebarCollapsed(!sidebarEl.classList.contains('sidebar-collapsed'));
 
-// ---- Theme (hue/saturation/contrast) — shifts the actual accent CSS vars via HSL math,
-// so body text stays crisp and only the neon palette moves. Applied immediately to avoid
-// a flash of the default palette before the user's saved preference kicks in. ----
-const THEME_BASE_HSL = {
-  '--neon-cyan': [183, 100, 46],
-  '--neon-magenta': [344, 83, 52],
-  '--neon-green': [156, 100, 45],
-  '--neon-purple': [275, 83, 52],
-};
-// The background, cards, titlebar and dropdown surfaces used to be fixed hexes, so the hue
-// slider only moved the accents and the app still looked purple. Same colours in HSL here.
-const THEME_SURFACE_HSL = {
-  '--bg': [252, 50, 4],
-  '--bg-glow': [251, 65, 17],
-  '--card': [252, 49, 10],
-  '--titlebar-from': [253, 60, 6],
-  '--panel': [275, 55, 8],
-  '--panel-hi': [263, 66, 17],
-};
+// ---- Theme: named presets + fine-tune (hue/saturation/contrast offsets) ----
+// THEMES lives at the top level of src/shared/app-core.js so the web app and
+// gamevolley.js reuse the same data. applyThemePreset(id) sets the preset's
+// explicit values directly and persists the choice; the sliders shift that
+// preset's colours, and Reset returns to the untouched preset.
+let activeThemePreset = store.get('themePreset', 'synthwave');
+if (!THEMES[activeThemePreset]) activeThemePreset = 'synthwave';
 function applyTheme({ hue, sat, contrast }) {
   const root = document.documentElement.style;
-  // SATURATION: factor 0..2 across the full slider. Colors already at 100% sat
-  // can't get "more saturated", so past 100% we push lightness toward the vivid
-  // 50% pivot instead — the slider visibly brightens/intensifies neon colors.
-  const satF = sat / 100;
-  const satOf = (s, l) => {
-    const s2 = Math.min(100, Math.max(0, s * satF));
-    const l2 = satF > 1 ? l - (l - 50) * (satF - 1) * 0.8 : l;
-    return [s2, Math.min(100, Math.max(0, l2))];
-  };
-  // CONTRAST: classic midpoint-anchored S-curve around 50% lightness. Dark
-  // surfaces get deeper, light text gets brighter, mid-tones spread apart —
-  // visible on everything (the old formula pinned accent lightness at 50%).
-  const conF = contrast / 100;
-  const conOf = (l) => {
-    const v = ((l / 100) - 0.5) * conF + 0.5;
-    return Math.min(100, Math.max(0, v * 100));
-  };
-  for (const [name, [h, s, l]] of Object.entries(THEME_BASE_HSL)) {
-    const newH = ((h + hue) % 360 + 360) % 360;
-    const [newS, newL] = satOf(s, conOf(l));
-    root.setProperty(name, `hsl(${newH.toFixed(0)}, ${newS.toFixed(0)}%, ${newL.toFixed(0)}%)`);
+  const vars = THEMES[activeThemePreset].vars;
+  const identity = (!hue || hue === 0) && sat === 100 && contrast === 100;
+  for (const name of THEME_VARS) {
+    const raw = vars[name];
+    if (raw === undefined) continue;
+    // Identity offsets reproduce the preset verbatim, so Reset returns to it exactly.
+    const base = identity ? null : parseThemeColor(raw);
+    root.setProperty(name, base ? (shiftThemeColor(base, { hue, sat, contrast }) || raw) : raw);
   }
-  // Surfaces: hue follows the accents; same sat/contrast treatment.
-  // Surfaces sit at 4-17% lightness where a pivot-at-50% curve is invisible, so scale
-  // lightness multiplicatively (clamped) — the contrast slider visibly lifts/deepens them.
-  for (const [name, [h, s, l]] of Object.entries(THEME_SURFACE_HSL)) {
-    const newH = ((h + hue) % 360 + 360) % 360;
-    const [newS, newL] = satOf(Math.min(100, s * (1 + (satF - 1) * 0.6)), Math.min(40, l * conF * conF * (satF > 1 ? 1 + (satF - 1) * 0.5 : 1)));
-    root.setProperty(name, `hsl(${newH.toFixed(0)}, ${newS.toFixed(0)}%, ${newL.toFixed(0)}%)`);
-  }
-  // Field fills and the wash behind the full-page Settings view keep their alpha.
-  const fh = ((252 + hue) % 360 + 360) % 360;
-  const [fs, fl] = satOf(50, conOf(4));
-  root.setProperty('--field', `hsla(${fh.toFixed(0)}, ${fs.toFixed(0)}%, ${fl.toFixed(0)}%, 0.7)`);
-  const wh = ((270 + hue) % 360 + 360) % 360;
-  const [ws, wl] = satOf(71, conOf(27));
-  root.setProperty('--bg-wash', `hsla(${wh.toFixed(0)}, ${ws.toFixed(0)}%, ${Math.min(40, wl).toFixed(0)}%, 0.35)`);
-  // Keep the purple-tinted borders/glow in step with the shifted purple instead of
-  // staying frozen at the original hue.
-  const [ph, ps0] = THEME_BASE_HSL['--neon-purple'];
-  const h2 = ((ph + hue) % 360 + 360) % 360;
-  const [s2, l2] = satOf(ps0, 50);
-  root.setProperty('--line', `hsla(${h2.toFixed(0)}, ${s2.toFixed(0)}%, ${l2.toFixed(0)}%, 0.3)`);
-  root.setProperty('--line-glow', `hsla(${h2.toFixed(0)}, ${s2.toFixed(0)}%, ${l2.toFixed(0)}%, 0.8)`);
-  // Text: contrast also brightens/dims body and secondary text.
-  root.setProperty('--txt', `hsl(${((270 + hue) % 360 + 360) % 360}, ${Math.round(30 * satF > 100 ? 100 : 30 * satF)}%, ${Math.round(Math.min(98, Math.max(55, 92 + (conF - 1) * 20)))}%)`);
-  root.setProperty('--dim', `hsl(${((248 + hue) % 360 + 360) % 360}, ${Math.round(Math.min(100, 20 * satF))}%, ${Math.round(Math.min(90, Math.max(35, 65 + (conF - 1) * 50)))}%)`);
+  root.colorScheme = THEMES[activeThemePreset].scheme || 'dark';
   // The animated background canvas paints with its own colours — let it re-read them.
   document.dispatchEvent(new Event('vp-theme'));
+}
+function applyThemePreset(id) {
+  if (!THEMES[id]) return;
+  activeThemePreset = id;
+  store.set('themePreset', id);
+  applyTheme(currentThemeValues());
+  markActiveThemePreset();
+}
+const themeSwatchWrap = $('themeSwatches');
+function markActiveThemePreset() {
+  if (!themeSwatchWrap) return;
+  themeSwatchWrap.querySelectorAll('.theme-swatch').forEach((b) => {
+    const on = b.dataset.themePreset === activeThemePreset;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-checked', String(on));
+  });
+}
+if (themeSwatchWrap) {
+  themeSwatchWrap.addEventListener('click', (e) => {
+    const btn = e.target.closest('.theme-swatch');
+    if (btn && THEMES[btn.dataset.themePreset]) applyThemePreset(btn.dataset.themePreset);
+  });
+  markActiveThemePreset();
 }
 const hueInput = $('themeHue'), satInput = $('themeSat'), contrastInput = $('themeContrast');
 hueInput.value = store.get('themeHue', '0');

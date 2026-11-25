@@ -27,76 +27,50 @@ function setSidebarCollapsed(collapsed) {
 setSidebarCollapsed(store.get('sidebarCollapsed', '0') === '1');
 $('btnSidebarToggle').onclick = () => setSidebarCollapsed(!sidebarEl.classList.contains('sidebar-collapsed'));
 
-// ---- Theme (hue/saturation/contrast) — shifts the actual accent CSS vars via HSL math,
-// so body text stays crisp and only the neon palette moves. Applied immediately to avoid
-// a flash of the default palette before the user's saved preference kicks in. ----
-const THEME_BASE_HSL = {
-  '--neon-cyan': [183, 100, 46],
-  '--neon-magenta': [344, 83, 52],
-  '--neon-green': [156, 100, 45],
-  '--neon-purple': [275, 83, 52],
-};
-// The background, cards, titlebar and dropdown surfaces used to be fixed hexes, so the hue
-// slider only moved the accents and the app still looked purple. Same colours in HSL here.
-const THEME_SURFACE_HSL = {
-  '--bg': [252, 50, 4],
-  '--bg-glow': [251, 65, 17],
-  '--card': [252, 49, 10],
-  '--titlebar-from': [253, 60, 6],
-  '--panel': [275, 55, 8],
-  '--panel-hi': [263, 66, 17],
-};
+// ---- Theme: named presets + fine-tune (hue/saturation/contrast offsets) ----
+// THEMES lives at the top level of src/shared/app-core.js so the web app and
+// gamevolley.js reuse the same data. applyThemePreset(id) sets the preset's
+// explicit values directly and persists the choice; the sliders shift that
+// preset's colours, and Reset returns to the untouched preset.
+let activeThemePreset = store.get('themePreset', 'synthwave');
+if (!THEMES[activeThemePreset]) activeThemePreset = 'synthwave';
 function applyTheme({ hue, sat, contrast }) {
   const root = document.documentElement.style;
-  // SATURATION: factor 0..2 across the full slider. Colors already at 100% sat
-  // can't get "more saturated", so past 100% we push lightness toward the vivid
-  // 50% pivot instead — the slider visibly brightens/intensifies neon colors.
-  const satF = sat / 100;
-  const satOf = (s, l) => {
-    const s2 = Math.min(100, Math.max(0, s * satF));
-    const l2 = satF > 1 ? l - (l - 50) * (satF - 1) * 0.8 : l;
-    return [s2, Math.min(100, Math.max(0, l2))];
-  };
-  // CONTRAST: classic midpoint-anchored S-curve around 50% lightness. Dark
-  // surfaces get deeper, light text gets brighter, mid-tones spread apart —
-  // visible on everything (the old formula pinned accent lightness at 50%).
-  const conF = contrast / 100;
-  const conOf = (l) => {
-    const v = ((l / 100) - 0.5) * conF + 0.5;
-    return Math.min(100, Math.max(0, v * 100));
-  };
-  for (const [name, [h, s, l]] of Object.entries(THEME_BASE_HSL)) {
-    const newH = ((h + hue) % 360 + 360) % 360;
-    const [newS, newL] = satOf(s, conOf(l));
-    root.setProperty(name, `hsl(${newH.toFixed(0)}, ${newS.toFixed(0)}%, ${newL.toFixed(0)}%)`);
+  const vars = THEMES[activeThemePreset].vars;
+  const identity = (!hue || hue === 0) && sat === 100 && contrast === 100;
+  for (const name of THEME_VARS) {
+    const raw = vars[name];
+    if (raw === undefined) continue;
+    // Identity offsets reproduce the preset verbatim, so Reset returns to it exactly.
+    const base = identity ? null : parseThemeColor(raw);
+    root.setProperty(name, base ? (shiftThemeColor(base, { hue, sat, contrast }) || raw) : raw);
   }
-  // Surfaces: hue follows the accents; same sat/contrast treatment.
-  // Surfaces sit at 4-17% lightness where a pivot-at-50% curve is invisible, so scale
-  // lightness multiplicatively (clamped) — the contrast slider visibly lifts/deepens them.
-  for (const [name, [h, s, l]] of Object.entries(THEME_SURFACE_HSL)) {
-    const newH = ((h + hue) % 360 + 360) % 360;
-    const [newS, newL] = satOf(Math.min(100, s * (1 + (satF - 1) * 0.6)), Math.min(40, l * conF * conF * (satF > 1 ? 1 + (satF - 1) * 0.5 : 1)));
-    root.setProperty(name, `hsl(${newH.toFixed(0)}, ${newS.toFixed(0)}%, ${newL.toFixed(0)}%)`);
-  }
-  // Field fills and the wash behind the full-page Settings view keep their alpha.
-  const fh = ((252 + hue) % 360 + 360) % 360;
-  const [fs, fl] = satOf(50, conOf(4));
-  root.setProperty('--field', `hsla(${fh.toFixed(0)}, ${fs.toFixed(0)}%, ${fl.toFixed(0)}%, 0.7)`);
-  const wh = ((270 + hue) % 360 + 360) % 360;
-  const [ws, wl] = satOf(71, conOf(27));
-  root.setProperty('--bg-wash', `hsla(${wh.toFixed(0)}, ${ws.toFixed(0)}%, ${Math.min(40, wl).toFixed(0)}%, 0.35)`);
-  // Keep the purple-tinted borders/glow in step with the shifted purple instead of
-  // staying frozen at the original hue.
-  const [ph, ps0] = THEME_BASE_HSL['--neon-purple'];
-  const h2 = ((ph + hue) % 360 + 360) % 360;
-  const [s2, l2] = satOf(ps0, 50);
-  root.setProperty('--line', `hsla(${h2.toFixed(0)}, ${s2.toFixed(0)}%, ${l2.toFixed(0)}%, 0.3)`);
-  root.setProperty('--line-glow', `hsla(${h2.toFixed(0)}, ${s2.toFixed(0)}%, ${l2.toFixed(0)}%, 0.8)`);
-  // Text: contrast also brightens/dims body and secondary text.
-  root.setProperty('--txt', `hsl(${((270 + hue) % 360 + 360) % 360}, ${Math.round(30 * satF > 100 ? 100 : 30 * satF)}%, ${Math.round(Math.min(98, Math.max(55, 92 + (conF - 1) * 20)))}%)`);
-  root.setProperty('--dim', `hsl(${((248 + hue) % 360 + 360) % 360}, ${Math.round(Math.min(100, 20 * satF))}%, ${Math.round(Math.min(90, Math.max(35, 65 + (conF - 1) * 50)))}%)`);
+  root.colorScheme = THEMES[activeThemePreset].scheme || 'dark';
   // The animated background canvas paints with its own colours — let it re-read them.
   document.dispatchEvent(new Event('vp-theme'));
+}
+function applyThemePreset(id) {
+  if (!THEMES[id]) return;
+  activeThemePreset = id;
+  store.set('themePreset', id);
+  applyTheme(currentThemeValues());
+  markActiveThemePreset();
+}
+const themeSwatchWrap = $('themeSwatches');
+function markActiveThemePreset() {
+  if (!themeSwatchWrap) return;
+  themeSwatchWrap.querySelectorAll('.theme-swatch').forEach((b) => {
+    const on = b.dataset.themePreset === activeThemePreset;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-checked', String(on));
+  });
+}
+if (themeSwatchWrap) {
+  themeSwatchWrap.addEventListener('click', (e) => {
+    const btn = e.target.closest('.theme-swatch');
+    if (btn && THEMES[btn.dataset.themePreset]) applyThemePreset(btn.dataset.themePreset);
+  });
+  markActiveThemePreset();
 }
 const hueInput = $('themeHue'), satInput = $('themeSat'), contrastInput = $('themeContrast');
 hueInput.value = store.get('themeHue', '0');
