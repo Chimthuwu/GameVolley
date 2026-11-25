@@ -143,7 +143,7 @@ app.whenReady().then(async () => {
   const r2 = await runScenario('critic-loop', GAMES.good, (n) => '[MED] enemies are too slow\nVERDICT: NEEDS-WORK');
   console.log(`\n=== critic-loop === completed=${r2.completed} rounds=${r2.rounds} devCalls=${r2.devCalls} files=${JSON.stringify(r2.projFiles)}`);
   const dev2 = r2.log.calls.filter((c) => c.role === 'dev')[1];
-  assertKnownBad(dev2 && !/requestAnimationFrame/.test(dev2.user), 'critic-loop: round-2 dev prompt still lacks the existing code (Q2 must include it)');
+  assert(dev2 && /requestAnimationFrame/.test(dev2.user), 'critic-loop: round-2 dev prompt contains the existing code (Q2)');
 
   try { fs.writeFileSync(path.join(os.tmpdir(), 'gv-audit-results.json'), JSON.stringify(results.map(({ log, ...r }) => r), null, 2)); } catch {}
 

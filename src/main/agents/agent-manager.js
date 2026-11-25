@@ -30,6 +30,9 @@
 const { validateProject } = require('../lib/validate-project.js');
 
 const DEFAULT_MAX_ROUNDS = 3;
+
+// Budget for the "CURRENT PROJECT CODE" section appended to fix/improve prompts (Q2).
+const CODE_CONTEXT_BUDGET = 60 * 1024;
 const MAX_ROUNDS_CAP = 5;
 
 // Clamp an untrusted round count: NaN/garbage/<=0 -> default, hard cap above.
@@ -226,8 +229,40 @@ class AgentManager {
       .catch(() => {});
   }
 
+  // Full project code for fix/improve rounds (Q2): the model must edit what
+  // exists instead of rewriting blind. Budgeted: the entry file first, then the
+  // rest largest-first; a file that does not fit is head-truncated with a notice.
+  async _projectCodeContext(buildContext, budget = CODE_CONTEXT_BUDGET) {
+    const files = (await this.projectManager.listFiles('', buildContext).catch(() => []))
+      .filter((f) => f.type === 'file');
+    const entryPath = await this.projectManager.detectEntryPoint(buildContext).catch(() => null);
+    const entryFile = entryPath && entryPath.type === 'file' ? entryPath.path : null;
+    const sorted = [...files].sort((a, b) => {
+      if (entryFile) { if (a.path === entryFile) return -1; if (b.path === entryFile) return 1; }
+      return (b.size || 0) - (a.size || 0);
+    });
+    const parts = [];
+    let used = 0;
+    for (const f of sorted) {
+      let text = '';
+      try { text = await this.projectManager.readFile(f.path, buildContext); } catch { continue; }
+      const header = `--- ${f.path} ---\n`;
+      const room = budget - used - header.length - 60;
+      if (room <= 0) break;
+      if (Buffer.byteLength(text) <= room) {
+        parts.push(header + text);
+      } else {
+        const head = text.slice(0, Math.max(0, Math.floor(room * 0.8)));
+        parts.push(`${header}${head}\n[TRUNCATED: first ${head.length} of ${text.length} chars]`);
+      }
+      used += Buffer.byteLength(parts[parts.length - 1]) + 1;
+    }
+    if (!parts.length) return '';
+    return `\n\nCURRENT PROJECT CODE (edit this — do not start from scratch):\n${parts.join('\n')}`;
+  }
+
   // Shared bounded round loop with the completion policy documented at the top.
-  async _runRounds({ buildTask, brief, signal, onEvent, maxRounds }) {
+  async _runRounds({ buildTask, brief, signal, onEvent, maxRounds, includeCodeContext = false }) {
     const rounds = clampRounds(maxRounds);
     // Capture immutable project context for this build.
     const buildContext = this.projectManager.startBuildContext();
@@ -250,10 +285,16 @@ class AgentManager {
         const fixNote = feedback
           ? `\n\nIMPORTANT — the previous pass did not fully succeed. Fix ALL of these before anything else:\n${feedback}`
           : '';
+        // Fix/improve rounds get the existing code (Q2): edit, don't rewrite blind.
+        let devPrompt = buildTask + fixNote;
+        if (feedback || includeCodeContext) {
+          const codeCtx = await this._projectCodeContext(buildContext);
+          if (codeCtx) devPrompt += codeCtx;
+        }
         const restoreTo = async () => this._safeRestore(lastGood, onEvent, buildContext);
 
         try {
-          await this._develop(buildTask + fixNote, {
+          await this._develop(devPrompt, {
             developerId: this._developerId,
             developerModel: this._developerModel,
             signal,
@@ -374,7 +415,7 @@ class AgentManager {
     const summary = await this.projectManager.getProjectSummary().catch(() => ({ name: '', entry: null, tree: [], manifest: '' }));
     const baseTask = `You are improving an EXISTING game project in the current working directory. Follow the user's instruction literally — do not change the game's core concept unless asked. Respect the existing code style and files.\n\nEXISTING PROJECT:\n${JSON.stringify({ entry: summary.entry, tree: summary.tree.slice(0, 80) }, null, 2)}\n\nUSER INSTRUCTION:\n${instruction}`;
 
-    const out = await this._runRounds({ buildTask: baseTask, brief: '', signal, onEvent, maxRounds });
+    const out = await this._runRounds({ buildTask: baseTask, brief: '', signal, onEvent, maxRounds, includeCodeContext: true });
     this._emit(onEvent, { type: 'game:done', result: this._result(out) });
     return { entry: out.entry, review: out.review, rounds: out.round, completed: out.completed, validation: out.validation };
   }
