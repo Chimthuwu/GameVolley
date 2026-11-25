@@ -237,6 +237,10 @@ class AgentManager {
     let lastEntry = null;
     let lastValidation = null;
     let lastReview = { findings: [], verdict: 'NEEDS-WORK' };
+    // Best failed attempt so far (fewest blocking validation errors), used to keep
+    // something instead of wiping the project when every round fails. Q1.
+    let bestAttempt = { blocking: Infinity, checkpoint: null, round: 0 };
+    let validatedAnyRound = false; // some round passed validation -> lastGood beats any failed attempt
     let round = 0;
 
     try {
@@ -271,15 +275,23 @@ class AgentManager {
         const validation = await this._validate({ onEvent, entry: lastEntry, buildContext });
         lastValidation = validation;
 
+        // Snapshot failed attempts so a later wipe can restore the best one (Q1),
+        // then keep the work and feed the validation errors into the next round.
         if (!validation.ok) {
+          const blockingCount = validation.blocking.length;
+          if (blockingCount < bestAttempt.blocking) {
+            bestAttempt.blocking = blockingCount;
+            bestAttempt.round = round;
+            bestAttempt.checkpoint = await this.projectManager.checkpoint().create(root, `round-${round}-attempt`).catch(() => bestAttempt.checkpoint);
+          }
           this._emit(onEvent, { type: 'validation:failed', round, checks: validation.checks, blocking: validation.blocking });
-          // Keep the work; feed the validation errors into the next round.
           feedback = `VALIDATION FAILED — fix these execution-level problems:\n${validation.blocking.map((b) => `- ${b}`).join('\n')}`;
           continue;
         }
 
         // This state is execution-verified good; it becomes the rollback point.
         lastGood = await this.projectManager.checkpoint().create(root, `round-${round}-valid`).catch(() => lastGood);
+        validatedAnyRound = true;
 
         this._emit(onEvent, { type: 'progress', phase: 'review', round, maxRounds: rounds });
         lastReview = await this._review(brief, { signal, onEvent, buildContext });
@@ -292,8 +304,20 @@ class AgentManager {
         feedback = `Review findings to address:\n${lastReview.findings.map((f) => `- [${f.severity}] ${f.message}`).join('\n')}`;
       }
 
-      // Out of rounds and not complete: restore the last known-good state.
-      await this._safeRestore(lastGood, onEvent, buildContext);
+      // Out of rounds and not complete: never wipe the project (Q1). If a round
+      // validated, lastGood is strictly better than any failed attempt. Otherwise
+      // keep the attempt with the fewest blocking errors instead of the empty
+      // baseline; if no round ever produced files, fall back to the baseline.
+      const keepIssues = (!validatedAnyRound && bestAttempt.blocking !== Infinity) ? bestAttempt.blocking : null;
+      if (keepIssues !== null && bestAttempt.checkpoint) {
+        await this._safeRestore(bestAttempt.checkpoint, onEvent, buildContext);
+        this._emit(onEvent, {
+          type: 'kept-attempt', round: bestAttempt.round, issues: keepIssues,
+          message: `Kept best attempt (round ${bestAttempt.round}, ${keepIssues} issue${keepIssues === 1 ? '' : 's'})`,
+        });
+      } else {
+        await this._safeRestore(lastGood, onEvent, buildContext);
+      }
       return {
         completed: false,
         round,
@@ -301,8 +325,11 @@ class AgentManager {
         entry: lastEntry,
         review: lastReview,
         validation: lastValidation,
-        reason: 'Did not pass validation and review within the round limit',
+        reason: keepIssues !== null
+          ? `Did not pass validation and review within the round limit; kept best attempt (${keepIssues} blocking issue${keepIssues === 1 ? '' : 's'})`
+          : 'Did not pass validation and review within the round limit',
         blocking: lastValidation ? lastValidation.blocking : [],
+        keptAttempt: keepIssues !== null ? { round: bestAttempt.round, issues: keepIssues } : null,
       };
     } finally {
       // Always release the build context lock.
