@@ -33,6 +33,8 @@ const DEFAULT_MAX_ROUNDS = 3;
 
 // Budget for the "CURRENT PROJECT CODE" section appended to fix/improve prompts (Q2).
 const CODE_CONTEXT_BUDGET = 60 * 1024;
+// Budget for the code the Critic actually sees (Q3).
+const CRITIC_CODE_BUDGET = 24 * 1024;
 const MAX_ROUNDS_CAP = 5;
 
 // Clamp an untrusted round count: NaN/garbage/<=0 -> default, hard cap above.
@@ -127,7 +129,14 @@ class AgentManager {
   async _review(brief, { signal, onEvent, buildContext }) {
     this._emit(onEvent, { type: 'agent:status', role: 'critic', status: 'working', message: 'Reviewing the build…' });
     const summary = await this.projectManager.getProjectSummary(buildContext).catch(() => ({ name: '', entry: null, tree: [], manifest: '' }));
-    const ctx = `DEVELOPMENT BRIEF:\n${brief}\n\nPROJECT SUMMARY:\n${JSON.stringify({ entry: summary.entry, tree: summary.tree.slice(0, 60) }, null, 2)}\n\nKEY FILES:\n${summary.manifest.slice(0, 6000)}`;
+    // Q3: the Critic reviews the REAL code, not 6 hand-picked filenames at 1500
+    // chars: entry file + all project JS/CSS, head+tail truncated, ~24 KB total.
+    const codeCtx = await this._projectCodeContext(buildContext, CRITIC_CODE_BUDGET, {
+      tail: true,
+      exts: /\.(js|mjs|cjs|ts|html|htm|css)$/i,
+      header: 'PROJECT CODE',
+    });
+    const ctx = `DEVELOPMENT BRIEF:\n${brief}\n\nPROJECT SUMMARY:\n${JSON.stringify({ entry: summary.entry, tree: summary.tree.slice(0, 60) }, null, 2)}${codeCtx}`;
     const provider = this.providers.getProvider(this._criticId);
     const models = await provider.getModels().catch(() => []);
     const model = this._criticModel || pickAutoModel(models);
@@ -229,12 +238,13 @@ class AgentManager {
       .catch(() => {});
   }
 
-  // Full project code for fix/improve rounds (Q2): the model must edit what
-  // exists instead of rewriting blind. Budgeted: the entry file first, then the
-  // rest largest-first; a file that does not fit is head-truncated with a notice.
-  async _projectCodeContext(buildContext, budget = CODE_CONTEXT_BUDGET) {
+  // Full project code for fix/improve rounds (Q2) and critic review (Q3): the
+  // model must edit/review what exists instead of working blind. Budgeted: the
+  // entry file first, then the rest largest-first; a file that does not fit is
+  // truncated with a notice (`tail: true` keeps a tail slice as well).
+  async _projectCodeContext(buildContext, budget = CODE_CONTEXT_BUDGET, { tail = false, exts = null, header = 'CURRENT PROJECT CODE (edit this — do not start from scratch)' } = {}) {
     const files = (await this.projectManager.listFiles('', buildContext).catch(() => []))
-      .filter((f) => f.type === 'file');
+      .filter((f) => f.type === 'file' && (!exts || exts.test(f.ext || '')));
     const entryPath = await this.projectManager.detectEntryPoint(buildContext).catch(() => null);
     const entryFile = entryPath && entryPath.type === 'file' ? entryPath.path : null;
     const sorted = [...files].sort((a, b) => {
@@ -251,6 +261,10 @@ class AgentManager {
       if (room <= 0) break;
       if (Buffer.byteLength(text) <= room) {
         parts.push(header + text);
+      } else if (tail) {
+        const head = text.slice(0, Math.max(0, Math.floor(room * 0.6)));
+        const tailPart = text.slice(-Math.max(0, Math.floor(room * 0.4)));
+        parts.push(`${header}${head}\n[TRUNCATED: omitted middle of ${text.length} chars]\n${tailPart}`);
       } else {
         const head = text.slice(0, Math.max(0, Math.floor(room * 0.8)));
         parts.push(`${header}${head}\n[TRUNCATED: first ${head.length} of ${text.length} chars]`);
@@ -258,7 +272,7 @@ class AgentManager {
       used += Buffer.byteLength(parts[parts.length - 1]) + 1;
     }
     if (!parts.length) return '';
-    return `\n\nCURRENT PROJECT CODE (edit this — do not start from scratch):\n${parts.join('\n')}`;
+    return `\n\n${header}:\n${parts.join('\n')}`;
   }
 
   // Shared bounded round loop with the completion policy documented at the top.

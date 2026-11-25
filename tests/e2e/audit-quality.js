@@ -59,7 +59,7 @@ function loop(){requestAnimationFrame(loop)}requestAnimationFrame(loop);
 
 function devFiles(html) { return `=== FILE: index.html ===\n${html}\n=== END FILE ===`; }
 
-async function runScenario(name, html, criticScript) {
+async function runScenario(name, devText, criticScript, rawDevText = false) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gv-audit-'));
   const log = { calls: [], events: [] };
   let devCalls = 0, criticCalls = 0;
@@ -76,7 +76,7 @@ async function runScenario(name, html, criticScript) {
       }
       devCalls++;
       log.calls.push({ role: 'dev', n: devCalls, user, systemLen: sys.length });
-      return { text: devFiles(html) };
+      return { text: rawDevText ? devText : devFiles(devText) };
     },
   };
   const win = new BrowserWindow({ width: 900, height: 700, show: false });
@@ -144,6 +144,19 @@ app.whenReady().then(async () => {
   console.log(`\n=== critic-loop === completed=${r2.completed} rounds=${r2.rounds} devCalls=${r2.devCalls} files=${JSON.stringify(r2.projFiles)}`);
   const dev2 = r2.log.calls.filter((c) => c.role === 'dev')[1];
   assert(dev2 && /requestAnimationFrame/.test(dev2.user), 'critic-loop: round-2 dev prompt contains the existing code (Q2)');
+
+  // Scenario: game code lives in js/main.js — the Critic must actually see it (Q3).
+  const splitFilesText = [
+    '=== FILE: index.html ===',
+    '<!doctype html><html><body><canvas id="c"></canvas><script src="js/main.js"></script></body></html>',
+    '=== END FILE ===',
+    '=== FILE: js/main.js ===',
+    "const c=document.getElementById('c'),x=c.getContext('2d');let score=0;function loop(){x.fillStyle='#123';x.fillRect(0,0,300,200);score++;requestAnimationFrame(loop)}requestAnimationFrame(loop);",
+    '=== END FILE ===',
+  ].join('\n');
+  const r3 = await runScenario('split-files', splitFilesText, shipAt1, true);
+  const crit3 = r3.log.calls.find((c) => c.role === 'critic');
+  assert(crit3 && /requestAnimationFrame/.test(crit3.user) && /js\/main\.js/.test(crit3.user), `split-files: critic context contains the js/main.js code (Q3; ctxLen=${crit3 ? crit3.userLen : 'n/a'})`);
 
   try { fs.writeFileSync(path.join(os.tmpdir(), 'gv-audit-results.json'), JSON.stringify(results.map(({ log, ...r }) => r), null, 2)); } catch {}
 
