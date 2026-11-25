@@ -22,7 +22,10 @@ const path = require('node:path');
 const vm = require('node:vm');
 const { execFile } = require('node:child_process');
 
-const NOISE = [/favicon\.ico/i];
+// Console noise that is NOT the game's fault: favicon 404s, and Electron's own
+// dev-mode security banner (emitted for ANY page without a CSP meta, including
+// every preview we serve — it is environment noise, not a runtime error).
+const NOISE = [/favicon\.ico/i, /electron security warning/i, /insecure content-security-policy/i];
 const CHECKLIST = [
   ['game loop', /requestAnimationFrame|setAnimationLoop|setInterval/],
   ['input handling', /addEventListener\(\s*['"](key|pointer|mouse|touch|click)/i],
