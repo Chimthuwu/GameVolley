@@ -2,7 +2,7 @@
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="color-scheme" content="dark">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://openrouter.ai https://api.github.com https://raw.githubusercontent.com">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://volley-prompt.pages.dev https://openrouter.ai https://api.github.com https://raw.githubusercontent.com">
 <title>VolleyPrompt — two AIs, one perfect prompt</title>
 <meta name="description" content="Two AI models volley your prompt back and forth until it's actually good — runs entirely in your browser, bring your own OpenRouter key. Open source: github.com/Chimthuwu/Volley-Prompt">
 <link rel="icon" href="icon.svg">
@@ -222,12 +222,13 @@
     <h3 class="settings-section">Spend &amp; keys</h3>
     <label>💸 Per-volley budget cap <small>stop after the current model response reaches this spend; 0 disables the cap</small><input id="setBudget" type="number" min="0" max="100" step="0.01" value="0"></label>
     <div class="key-store">
-      <div class="key-store-row"><span>🔑 OpenRouter key</span><strong id="keyStoreStatus">Checking…</strong></div>
-      <p class="hint key-store-where" id="keyStoreWhere">Where this key is stored…</p>
-      <p class="hint" id="keyUsageInfo">OpenRouter key usage is available when a key is saved.</p>
+        <div class="key-store-row"><span>🔑 OpenRouter key</span><strong id="keyStoreStatus">Checking…</strong></div>
+        <p class="hint key-store-where" id="keyStoreWhere">Where this key is stored…</p>
+        <p class="hint" id="keyUsageInfo">OpenRouter key usage is available when a key is saved.</p>
+      </div>
+    <div id="syncHost"></div>
     </div>
-  </div>
-  <div class="row settings-foot">
+    <div class="row settings-foot">
     <button class="big" id="btnSaveSettings">Save settings</button>
     <button class="ghost" id="btnEditKey">API key…</button>
   </div>
@@ -251,7 +252,15 @@
   <label id="promptField"><span id="promptLabel">Name</span><input id="promptInput" type="text" maxlength="120" spellcheck="false"></label>
   <div class="row"><button class="big" id="promptOk">Save</button><button class="ghost" id="promptCancel">Cancel</button></div>
 </div></div>
+<!-- Shared sync stack: pairing, profile merge, client, QR, state apply, panel UI. -->
+<script src="pairing.js"></script>
+<script src="sync-profile.js"></script>
+<script src="sync-client.js"></script>
+<script src="qr.js"></script>
+<script src="sync-apply.js"></script>
+<script src="sync-ui.js"></script>
 <script src="pv.js"></script>
 
 <script src="app.js"></script>
+<script src="sync-boot.js"></script>
 </body></html>

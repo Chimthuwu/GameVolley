@@ -44,4 +44,8 @@ contextBridge.exposeInMainWorld('pv', {
 
   // Streaming events from the GameVolley orchestration.
   gameOnEvent: (cb) => ipcRenderer.on('gamevolley:event', (_e, ev) => cb(ev)),
+
+  // Web/desktop sync — pairing secret stays in OS-encrypted storage in the main process.
+  syncStatus: inv('sync:status'), syncGenerate: inv('sync:generate'), syncEnter: inv('sync:enter'),
+  syncUnpair: inv('sync:unpair'), syncPull: inv('sync:pull'), syncPush: inv('sync:push'),
 });

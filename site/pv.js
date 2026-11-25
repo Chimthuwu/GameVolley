@@ -14,6 +14,32 @@
   let githubUsername = '';
   const MAX_HISTORY = 50;
 
+  // ---- web/desktop sync: the pairing code is device-local; the profile is E2E encrypted ----
+  const PAIR_KEY = 'vp_pair_code';
+  const pairStorage = {
+    getPairSecret: () => { try { return String(localStorage.getItem(PAIR_KEY) || '').trim(); } catch { return ''; } },
+    setPairSecret: (s) => { try { s ? localStorage.setItem(PAIR_KEY, s) : localStorage.removeItem(PAIR_KEY); } catch {} },
+    clearPairSecret: () => { try { localStorage.removeItem(PAIR_KEY); } catch {} },
+  };
+  const syncClientLocal = window.GameVolleySyncClient && window.GameVolleySyncClient.createSyncClient({ storage: pairStorage });
+  const syncState = async () => {
+    if (!syncClientLocal) return { paired: false, blobId: null, code: '' };
+    const state = await syncClientLocal.status();
+    return { paired: state.paired, blobId: state.blobId, code: pairStorage.getPairSecret() };
+  };
+  window.GameVolleyWebSync = {
+    status: syncState,
+    generate: async () => {
+      const code = window.GameVolleyPairing.generatePairSecret();
+      await syncClientLocal.pair(code);
+      return syncState();
+    },
+    enter: async (code) => { await syncClientLocal.pair(code); return syncState(); },
+    unpair: async () => { syncClientLocal.unpair(); return { paired: false }; },
+    pull: () => syncClientLocal ? syncClientLocal.pull() : null,
+    push: (state) => syncClientLocal ? syncClientLocal.push(state || {}) : null,
+  };
+
   const AUTHOR_SYSTEM = `You are an expert prompt engineer. The user wants a prompt they can give to an AI coding assistant to build a game or app. Write a clear, complete, well-structured prompt: goal, tech stack, core features, constraints, scope/milestones, and what 'done' looks like. Make reasonable assumptions explicit instead of leaving gaps. When given critic feedback, revise accordingly and keep what already works. Output ONLY the prompt itself, no preamble or commentary.`;
 
   const CRITIC_SYSTEM = `You are a harsh but fair reviewer of AI prompts. Review the prompt against this rubric:

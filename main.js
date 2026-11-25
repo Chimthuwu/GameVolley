@@ -3,6 +3,9 @@ const fs = require('fs');
 const path = require('path');
 const runsStore = require('./lib/runs-store.js');
 const providerModule = require('./lib/providers.js');
+const pairing = require('./src/shared/pairing.js');
+const syncClient = require('./src/shared/sync-client.js');
+const { createPairingStore } = require('./lib/pairing-store.js');
 
 // GameVolley: the real local development workspace, embedded preview, and the
 // multi-role coding-agent orchestration that turns an idea into a playable game.
@@ -105,6 +108,33 @@ function saveGithubToken(token) {
   fs.writeFileSync(githubTokenFile(), safeStorage.encryptString(value));
   return { ok: true, persisted: true };
 }
+
+// ---- web/desktop sync (A2-A4) ----
+// The pairing code is stored with OS encryption beside key.bin; the derived AES key and
+// the plaintext profile never leave this process until they are encrypted for the wire.
+const pairingStore = createPairingStore(app.getPath('userData'), safeStorage);
+const sync = syncClient.createSyncClient({ storage: pairingStore });
+const syncStatus = async () => {
+  const code = pairingStore.getPairSecret();
+  if (!code || !pairing.isValidPairSecret(code)) return { paired: false, blobId: null, code: '' };
+  const id = await pairing.deriveIdentity(code);
+  return { paired: true, blobId: id.blobId, code };
+};
+ipcMain.handle('sync:status', syncStatus);
+ipcMain.handle('sync:generate', async () => {
+  const code = pairing.generatePairSecret();
+  pairingStore.setPairSecret(code);
+  return syncStatus();
+});
+ipcMain.handle('sync:enter', async (_e, code) => {
+  const clean = String(code == null ? '' : code).trim();
+  if (!pairing.isValidPairSecret(clean)) throw new Error('That pairing code is not valid');
+  pairingStore.setPairSecret(clean);
+  return syncStatus();
+});
+ipcMain.handle('sync:unpair', async () => { pairingStore.clearPairSecret(); return { paired: false }; });
+ipcMain.handle('sync:pull', async () => sync.pull());
+ipcMain.handle('sync:push', async (_e, state) => sync.push(state || {}));
 
 // ---- per-provider credentials (encrypted, kept out of the renderer) ----
 const providerDataDir = () => path.join(app.getPath('userData'), 'providers');

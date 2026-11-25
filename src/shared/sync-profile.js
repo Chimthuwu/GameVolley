@@ -97,7 +97,7 @@
     const blobs = [];
     if (!runs) return { profile, blobs };
     const limit = Number.isFinite(threshold) ? threshold : R2_THRESHOLD;
-    const prefix = String(keyPrefix || 'profile').replace(/\/+$/, '');
+    const prefix = String(keyPrefix || '').replace(/\/+$/, '');
 
     for (const run of runs) {
       if (!run || typeof run !== 'object') continue;
@@ -105,7 +105,8 @@
         const value = run[field];
         if (typeof value !== 'string' || byteLength(value) <= limit) continue;
         const index = blobs.length;
-        const key = `${prefix}/${index}.txt`;
+        // The server already namespaces R2 objects by blobId, so a bare filename is enough.
+        const key = prefix ? `${prefix}/${index}.txt` : `${index}.txt`;
         delete run[field];
         run[POINTER] = run[POINTER] || {};
         run[POINTER][field] = key;

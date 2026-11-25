@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="color-scheme" content="dark">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://api.github.com https://raw.githubusercontent.com">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://volley-prompt.pages.dev https://api.github.com https://raw.githubusercontent.com">
 <title>GameVolley</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -338,6 +338,7 @@
     <h3 class="settings-section">Providers</h3>
     <p class="hint">Connect your own AI accounts so you're not billed through OpenRouter. Each role above can use a different provider. Keys are stored encrypted on this device only — never sent anywhere but the provider you choose.</p>
     <div id="providerList" class="provider-list"></div>
+    <div id="syncHost"></div>
   </div>
   <div class="row settings-foot">
     <button class="big" id="btnSaveSettings">Save settings</button>
@@ -363,6 +364,14 @@
   <label id="promptField"><span id="promptLabel">Name</span><input id="promptInput" type="text" maxlength="120" spellcheck="false"></label>
   <div class="row"><button class="big" id="promptOk">Save</button><button class="ghost" id="promptCancel">Cancel</button></div>
 </div></div>
+<!-- Shared sync stack: pairing, profile merge, client, QR, state apply, panel UI. -->
+<script src="pairing.js"></script>
+<script src="sync-profile.js"></script>
+<script src="sync-client.js"></script>
+<script src="qr.js"></script>
+<script src="sync-apply.js"></script>
+<script src="sync-ui.js"></script>
 <script src="app.js"></script>
 <script src="gamevolley.js"></script>
+<script src="sync-boot.js"></script>
 </body></html>

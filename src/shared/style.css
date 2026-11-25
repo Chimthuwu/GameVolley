@@ -1,0 +1,17 @@
+/* Styles shared by the desktop renderer and the web app (see build-shared.mjs). */
+
+.sync-panel {
+  margin-top: 1rem;
+  padding: 1rem;
+  border: 1px solid var(--line, rgba(255, 255, 255, 0.12));
+  border-radius: 10px;
+  background: var(--surface, rgba(255, 255, 255, 0.03));
+}
+
+.sync-panel .settings-section { margin: 0 0 0.4rem; }
+.sync-body { display: flex; flex-direction: column; gap: 0.6rem; }
+.sync-enter, .sync-code-row, .sync-actions { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+.sync-enter input, .sync-code { flex: 1 1 220px; min-width: 0; }
+.sync-qr { background: #fff; display: inline-flex; padding: 6px; border-radius: 6px; width: max-content; max-width: 100%; }
+.sync-qr svg { display: block; max-width: 100%; height: auto; }
+.sync-message { margin: 0.5rem 0 0; min-height: 1em; }
