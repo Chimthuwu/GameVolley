@@ -1105,4 +1105,4 @@ label .prov-select { margin-top: 6px; }
 .provider-cred-row { display: flex; gap: 6px; align-items: center; margin: 8px 0 4px; flex-wrap: wrap; }
 .provider-key { flex: 1 1 140px; padding: 6px 8px; font-size: 12px; background: var(--fill); color: var(--text); border: 1px solid var(--line); border-radius: 6px; }
 .provider-msg { font-size: 11px; color: var(--dim); }
-.provider-billing { color: var(--muted-foreground); font-style: italic; border-left: 2px solid var(--accent); padding-left: 8px; }
+.provider-billing { color: var(--muted-foreground); font-style: italic; border-left: 2px solid var(--line-glow); padding-left: 8px; }

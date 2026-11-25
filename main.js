@@ -1027,7 +1027,8 @@ ipcMain.handle('agent:start', async (_e, cfg) => {
         signal: ctl.signal,
         onEvent: sendGame,
         // IPC boundary validation: clamp maxRounds to a sane, bounded integer.
-        maxRounds: Math.min(6, Math.max(1, Math.floor(Number(cfg.maxRounds) || 3))),
+        // clampRounds caps at MAX_ROUNDS_CAP (5), so keep the pre-clamp in step.
+        maxRounds: Math.min(5, Math.max(1, Math.floor(Number(cfg.maxRounds) || 3))),
       });
     } catch (e) {
       if (e && (e.cancelled || /aborted/i.test(e.message || ''))) sendGame({ type: 'agent:cancelled' });

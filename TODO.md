@@ -286,7 +286,7 @@ momozi1996/momozi-VibeGaming-Skills, majidmanzarpour/threejs-game-skills, sausi-
 
 **Security requirements carried over:** isolated project workspaces, filesystem access restricted to authorised dirs, no unrestricted shell from AI tool calls, no auto-executing untrusted imported code, execution timeouts/resource limits, no API keys exposed to the AI.
 
-- [ ] Kick off via `/sesh` in Hermes: scaffold the `VibeGame-MCP` repo (structure per spec: `apps/mcp-server`, `apps/local-builder`, `apps/dashboard`, `packages/*`, `library/*`, `sources/*`, `projects/`, `docs/`), set up the MCP server skeleton, resource manifest format, and SQLite index — then begin Phase 1 (import/inspect the first 2-3 candidate repos, basic search).
+- [!] Kick off via `/sesh` in Hermes: scaffold the `VibeGame-MCP` repo (structure per spec: `apps/mcp-server`, `apps/local-builder`, `apps/dashboard`, `packages/*`, `library/*`, `sources/*`, `projects/`, `docs/`), set up the MCP server skeleton, resource manifest format, and SQLite index — then begin Phase 1 (import/inspect the first 2-3 candidate repos, basic search). [!] 2026-11-26: creates a NEW repo outside Z:/github/_TOOLS/GameVolley — a step outside this project's repo (GameVolley-only worker may not touch other trees); needs the owner or a dedicated multi-repo run.
 
 ## Decisions made (review me)
 - 2026-11-26 — "When should the Q5 playtest probe BLOCK on an unchanged canvas?" Chose: block only when the canvas was never drawn to (unchanged + all pixels transparent); painted-but-static and unchanged-but-non-uniform get warnings; rAF-stalled (hidden window) = inconclusive. CHECKPOINT SHA: see `git log --grep 'DECISION: playtest-probe blocking rule'` (empty-tree commit, pushed). Reason: the todo's literal rule (unchanged + uniform) false-positives on legit static games (the audit's own `audio` example); a false blocking finding deletes the developer's work, so blocking must be certain.
@@ -296,6 +296,27 @@ momozi1996/momozi-VibeGaming-Skills, majidmanzarpour/threejs-game-skills, sausi-
 - 2026-11-25 — "Which transport for the direct Hermes handoff?" Chose CLI fallback (`hermes chat -q`, detached argv) as the working default; gateway `/v1/runs` is opt-in behind a token setting. CHECKPOINT SHA: `f533d616ad6c58ed1bd03ca66d677d2057ab2ceb` (pushed). Reason: no token available and the owner explicitly ruled out Discord.
 
 ## Inbox (agent-proposed)
+- [x] **Fix invisible border on .provider-billing notes** [P3] [code audit/bugs] [size:S]
+  Why: `.provider-billing` used `var(--accent)`, which is only defined inside `.panel` scope — in the settings grid the left border silently didn't render. Fixed to `var(--line-glow)` (2026-11-26, discovery).
+  Done when: (done) border renders on both themes.
+- [x] **Align the agent:start maxRounds clamp with clampRounds' cap** [P3] [code audit/bugs] [size:S]
+  Why: main.js pre-clamped to 6 while `clampRounds` caps at MAX_ROUNDS_CAP (5) — harmless but inconsistent. Fixed to 5 (2026-11-26, discovery).
+  Done when: (done) both clamps agree.
+- [ ] **Docs: README/STYLING don't cover the new theme presets or the game-quality gate** [P2] [docs] [size:M]
+  Why: T1–T4 added 6 named theme presets + a swatch picker; Q0–Q11 added a playtest probe, kept-best-attempt behavior, a completion bar (≤2 MED ships) and a max-rounds setting — none of this is documented for users.
+  Done when: README has a "Themes" section (preset list + how sliders act as offsets) and a "How builds are judged" section (validation gate, playtest probe, completion bar, rounds); STYLING.md documents --fill/--fill-hi and preset-driven vars.
+  Hints: keep it short; the audit harness (tests/e2e/audit-quality.js) documents the gate's actual behavior.
+
+- [ ] **Skip the unused manifest read in the Critic review path** [P3] [performance] [size:S]
+  Why: `_review` calls `getProjectSummary` but only uses `entry` + `tree`; the 6-file manifest sample (up to 9 KB of file reads per review round) is now dead work since Q3 replaced it with `_projectCodeContext`.
+  Done when: `_review` stops requesting the manifest (or getProjectSummary gains a `{manifest:false}` option) without breaking improveGame's use; npm test stays green.
+  Hints: agent-manager.js `_review` line ~130.
+
+- [ ] **Swatch radiogroup lacks arrow-key navigation** [P3] [accessibility] [size:S]
+  Why: `#themeSwatches` is a role=radiogroup with role=radio buttons, but each button is a separate tab stop without Left/Right/Home/End handling — radio groups are expected to move focus with arrows.
+  Done when: arrow keys move focus + selection between swatches in both shells; a jsdom test asserts it.
+  Hints: reuse the enhanceSelect keyboard pattern in src/shared/app-core.js.
+
 - [ ] **Give icon-only buttons real accessible names** [P2] [accessibility] [size:S]
   Why: several icon buttons in both shells rely on `title` alone (e.g. `btnSavePreset`, `btnDelPreset`, `utilityClose`, the `data-copy` mini buttons, titlebar min/max/close). `title` is not a reliable accessible name for screen readers.
   Done when: every icon-only `<button>` in `src/web/index.html` and `src/renderer/index.html` has an `aria-label` (or visually hidden text), and a jsdom test asserts no icon-only button is missing one.
