@@ -27,15 +27,18 @@ const runsDir = () => path.join(app.getPath('documents'), 'VolleyPrompt');
 
 const AUTHOR_SYSTEM = `You are an expert prompt engineer. The user wants a prompt they can give to an AI coding assistant to build a game or app. Write a clear, complete, well-structured prompt: goal, tech stack, core features, constraints, scope/milestones, and what 'done' looks like. Make reasonable assumptions explicit instead of leaving gaps. When given critic feedback, revise accordingly and keep what already works. Output ONLY the prompt itself, no preamble or commentary.
 
+INTENT FIDELITY: the user's request is the north star. Keep their stated goal and level of ambition as the headline of the prompt — if they ask for 'the best' or a full vision, the prompt must aim for that, not quietly shrink it into a minimal first pass. Split big goals into ordered milestones that ALL stay in the plan; never replace the user's goal with 'defer the rest', and never add legal/branding disclaimers, 'private prototype' framing or restrictions the user did not ask for.
+
 If the user attached project context (files, a project folder, or a repository), that is the ACTUAL codebase the resulting prompt will be executed against. Ground the prompt in it: reference real files, modules, systems, and functions by their actual names and paths, plan new work as changes to the existing architecture, and do not invent systems that contradict what is there. If the context shows the idea conflicts with the current code, resolve the conflict explicitly in the prompt instead of writing around it. If no project context is attached, make the stack assumptions explicit as usual.`;
 
 const CRITIC_SYSTEM = `You are a harsh but fair reviewer of AI prompts. Review the prompt against this rubric:
 1. Clarity - could anything be read two ways?
 2. Missing details - tech stack, platforms, controls, art/audio, data, edge cases.
 3. Contradictions between sections.
-4. Scope creep - is it too big for a first build? Is there a sensible milestone order?
+4. Scope - is there a sensible milestone order, and is the work achievable? Do NOT penalise ambition: fix oversized scope by ordering/phasing, never by cutting what the user asked for.
 5. Testability - is it clear what 'done' means?
 6. Grounding - if project context (code files, a folder, or a repository) is attached, the prompt must work WITH that real code: flag it as a HIGH issue when the prompt describes as new something the attached code clearly already has, when it references files/modules/systems that do not exist in the attached code, or when it contradicts the attached stack or architecture. If no project context is attached, skip this criterion.
+7. Intent fidelity - compare the prompt to the user's ORIGINAL request. Flag as HIGH if it drops, shrinks or reinterprets the stated goal or ambition, adds restrictions/disclaimers/'private prototype' framing the user did not ask for, or defers things the user clearly wanted.
 
 List issues ranked by severity (HIGH / MED / LOW) with a concrete fix for each. Number every issue. Do not rewrite the whole prompt. Do not praise for the sake of it. End with these exact machine-readable lines:
 FITNESS SCORE: N/100 (score clarity, completeness, consistency, scope, testability)
@@ -45,6 +48,23 @@ const IMAGE_DESCRIPTION_SYSTEM = `You describe image attachments so a text-only 
 
 // Output mode 'deep-plan': the volley produces a research-and-execution plan grounded in the
 // attached code, not a generic build prompt. Appended to the base system prompts.
+// Ambition: 'balanced' (default), 'focused' (small first pass) or 'full' (go big, full vision).
+const AMBITION_WRITER = {
+  focused: `
+
+AMBITION — FOCUSED: the user wants a small, safe first pass. Keep scope tight, list what is deferred, and prioritise stability over new content.`,
+  full: `
+
+AMBITION — FULL VISION: the user wants the best possible result. Be ambitious: specify rich, concrete features, polish, game feel/juice, content and quality bars, not just stability. Organise the work as ordered milestones (foundation first), but include ALL of them in the prompt. Do not tell the executor to avoid adding content or to defer major features.`,
+};
+const AMBITION_CRITIC = {
+  focused: `
+
+8. Ambition (focused mode) — the user wants a small first pass; flag HIGH if the prompt balloons beyond a tight, stable scope.`,
+  full: `
+
+8. Ambition (full-vision mode) — the user wants the best possible result. Flag as HIGH if the prompt shrinks, defers or forbids major content/features the user's request implies, or reads like a cautious stabilisation pass. Scope concerns (point 4) are then satisfied by clear milestone ORDER, never by cutting scope.`,
+};
 const DEEP_PLAN_WRITER_APPEND = `\n\nOUTPUT MODE — DEEP CODE PLAN: the attached project context is the primary material. Mine it thoroughly before proposing anything. The output must be a research-and-execution plan dense with concrete code references: cite real file paths, name the exact functions/classes/modules to change or build on, quote short excerpts of the existing code where they clarify the plan, and lay out an ordered execution plan (steps, which files each step touches, what 'done' for that step is). Call out risks and unknowns and tie each one to the specific code that raises it. Do not write a generic build prompt — every claim about the codebase must be grounded in the attached files.`;
 const DEEP_PLAN_CRITIC_APPEND = `\n\n7. Grounding depth (deep code plan mode) — when output mode is a deep code plan, the prompt must read like research done on the attached code: real file paths, real symbol names, short quoted excerpts, and an ordered execution plan. Flag as HIGH when it makes vague generic claims the attached code could have answered concretely, invents symbols that do not exist in the attached files, or presents a plan without the files each step touches.`;
 
@@ -723,8 +743,9 @@ ipcMain.handle('run:start', async (_e, cfg) => {
   const fallbackModel = (cfg.fallback || '').trim();
   const rubric = String(cfg.rubric || '').trim();
   const deepPlan = cfg.outputMode === 'deep-plan';
-  const authorSystem = deepPlan ? `${AUTHOR_SYSTEM}${DEEP_PLAN_WRITER_APPEND}` : AUTHOR_SYSTEM;
-  const criticSystem = `${rubric ? `${CRITIC_SYSTEM}\n\nADDITIONAL USER REVIEW RUBRIC (apply this too):\n${rubric}` : CRITIC_SYSTEM}${deepPlan ? DEEP_PLAN_CRITIC_APPEND : ''}`;
+  const ambition = ['focused', 'full'].includes(cfg.ambition) ? cfg.ambition : 'balanced';
+  const authorSystem = `${deepPlan ? `${AUTHOR_SYSTEM}${DEEP_PLAN_WRITER_APPEND}` : AUTHOR_SYSTEM}${AMBITION_WRITER[ambition] || ''}`;
+  const criticSystem = `${rubric ? `${CRITIC_SYSTEM}\n\nADDITIONAL USER REVIEW RUBRIC (apply this too):\n${rubric}` : CRITIC_SYSTEM}${deepPlan ? DEEP_PLAN_CRITIC_APPEND : ''}${AMBITION_CRITIC[ambition] || ''}`;
   const budgetLimit = Math.max(0, Number(cfg.budget) || 0);
   let actualCost = 0, usagePrompt = 0, usageCompletion = 0, budgetHit = false;
   const modelRates = (id) => {
@@ -811,7 +832,7 @@ ipcMain.handle('run:start', async (_e, cfg) => {
 
   let draft = '', finalSaved = false;
   const persistRunMeta = (extra = {}) => {
-    try { fs.writeFileSync(path.join(runsDir(), `${stamp}.meta.json`), JSON.stringify({ project: cfg.project || '', snapshots, metrics, cost: actualCost, tokens: usagePrompt + usageCompletion, score: snapshots.at(-1)?.score ?? null, rubric: cfg.rubric || '', outputMode: cfg.outputMode === 'deep-plan' ? 'deep-plan' : 'prompt', modelPair: { ...runModels }, ...extra }, null, 2)); } catch {}
+    try { fs.writeFileSync(path.join(runsDir(), `${stamp}.meta.json`), JSON.stringify({ project: cfg.project || '', snapshots, metrics, cost: actualCost, tokens: usagePrompt + usageCompletion, score: snapshots.at(-1)?.score ?? null, rubric: cfg.rubric || '', outputMode: cfg.outputMode === 'deep-plan' ? 'deep-plan' : 'prompt', ambition, modelPair: { ...runModels }, ...extra }, null, 2)); } catch {}
   };
   persistRunMeta(); // includes usage from an optional image-description pass
   // A Stop with partial text still lands on disk, flagged as a stopped draft (-draft.md).

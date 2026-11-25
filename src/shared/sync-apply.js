@@ -18,7 +18,7 @@
     pairs: 'vpModelPairs',
     history: 'vp_history',
   };
-  const COMPOSER_FIELDS = ['author', 'critic', 'rounds', 'idea', 'auto', 'outputMode'];
+  const COMPOSER_FIELDS = ['author', 'critic', 'rounds', 'idea', 'auto', 'outputMode', 'ambition'];
 
   function storage() {
     try { return globalThis.localStorage || null; } catch (_) { return null; }

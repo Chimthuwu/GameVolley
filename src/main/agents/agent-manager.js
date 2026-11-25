@@ -88,6 +88,8 @@ Include exactly these sections:
 7. FILE PLAN — the exact files to create (e.g. index.html, game.js, style.css).
 8. MUST-HAVE v1 — a short checklist of features the first playable build must have. Always include: win/lose + restart, an on-screen controls hint, and a difficulty ramp.
 
+INTENT FIDELITY: the player's idea is the north star. If they ask for "the best" or a big vision, aim for it — never shrink their idea into a minimal toy, and never add restrictions, disclaimers or "private prototype" framing they did not ask for. When improving an existing game, keep what already works and its character, and add real content, polish and feel rather than only hardening it.
+
 Keep the whole brief under 600 words. The coding agent will follow it literally.`;
 
 const CRITIC_SYSTEM = `You are the QA Critic for an AI game studio. You are given the development brief and a summary of the implemented project (file tree + key files). Reason carefully about whether the PLAYABLE game would satisfy the brief and be fun.
@@ -101,6 +103,8 @@ where SEVERITY is one of HIGH, MED, or LOW:
 
 Judge against these engine-quality criteria where relevant: a clamped-dt requestAnimationFrame main loop; explicit persistent game states (never stalling on empty waves or failed spawns); shape-appropriate collision with pickup areas matching what is drawn; balanced ctx.save()/restore(); gameplay constants in one CONFIG; complete files (no truncation).
 Judge against these GAME-FEEL criteria too: the game has real win/lose states and a RESTART that fully resets without a reload; there is a visible difficulty ramp; the controls are shown on screen; the game has some juice (screen shake, particles, WebAudio SFX after first input) — but flag it MED when juice is entirely absent on an otherwise complete game, not HIGH.
+
+INTENT FIDELITY: also judge whether the build delivers the ambition of the brief (not just that it runs). A game that runs but is a stripped-down shell of the brief's concept — missing its signature mechanics, content or polish — is a MED or HIGH finding.
 
 Do NOT invent problems you cannot support. At the very end, add exactly one line:
 VERDICT: <SHIP | CLOSE | NEEDS-WORK>`;

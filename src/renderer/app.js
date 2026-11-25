@@ -110,6 +110,7 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !themePa
   $('critic').value = store.get('critic', 'meta-llama/llama-3.3-70b-instruct');
   $('rounds').value = store.get('rounds', '3');
   $('outputMode').value = store.get('outputMode', 'prompt') === 'deep-plan' ? 'deep-plan' : 'prompt';
+  $('ambition').value = ['full', 'focused'].includes(store.get('ambition', 'balanced')) ? store.get('ambition', 'balanced') : 'balanced';
   $('idea').value = store.get('idea', '');
   $('auto').checked = store.get('auto', '0') === '1';
   const ap = store.get('authorProvider', 'openrouter');
@@ -557,6 +558,8 @@ async function composeCfgFromComposer() {
   cfg.fallbackProvider = store.get('fallbackProvider', '');
   cfg.outputMode = $('outputMode').value === 'deep-plan' ? 'deep-plan' : 'prompt';
   store.set('outputMode', cfg.outputMode);
+  cfg.ambition = ['full', 'focused'].includes($('ambition').value) ? $('ambition').value : 'balanced';
+  store.set('ambition', cfg.ambition);
   if (!cfg.author || !cfg.critic) { toast('Pick a model for both AIs.'); return null; }
   for (const k of ['author', 'critic', 'rounds', 'idea']) store.set(k, cfg[k]);
   store.set('auto', cfg.auto ? '1' : '0');
