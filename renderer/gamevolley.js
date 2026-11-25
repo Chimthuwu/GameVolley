@@ -681,6 +681,17 @@
     for (const id of ['gvDirectorModel', 'gvCriticModel', 'gvDeveloperModel']) {
       $(id).addEventListener('change', () => store.set(id, $(id).value.trim()));
     }
+    // Max rounds (1-5, backend clamps further): restored, persisted, sent per build.
+    const roundsSel = $('gvRounds');
+    if (roundsSel) {
+      for (let n = 1; n <= 5; n++) {
+        const o = document.createElement('option');
+        o.value = String(n); o.textContent = `${n} round${n === 1 ? '' : 's'}`;
+        roundsSel.appendChild(o);
+      }
+      roundsSel.value = String(Math.min(5, Math.max(1, Math.floor(Number(store.get('gvMaxRounds', '3')) || 3))));
+      roundsSel.addEventListener('change', () => store.set('gvMaxRounds', roundsSel.value));
+    }
   }
 
   function fillSelect(sel, pairs) {
@@ -765,7 +776,8 @@
       setStatus('Starting…');
       addActivity(`▶ ${cfg.mode === 'create' ? 'Creating' : cfg.mode === 'improve' ? 'Improving' : 'Fixing'}: ${cfg.idea || cfg.report}`, 'cmd', 'system');
       try {
-        const res = await pv.agentStart({ ...cfg, roles: currentRoles(), maxRounds: 3 });
+        const maxRounds = Math.min(5, Math.max(1, Math.floor(Number(store.get('gvMaxRounds', '3')) || 3)));
+        const res = await pv.agentStart({ ...cfg, roles: currentRoles(), maxRounds });
         if (!res || !res.ok) setStatus(res && res.message ? res.message : 'Could not start.', 'err');
       } catch (e) {
         setStatus('Error: ' + (e.message || e), 'err');

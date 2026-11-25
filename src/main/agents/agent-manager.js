@@ -35,6 +35,9 @@ const DEFAULT_MAX_ROUNDS = 3;
 const CODE_CONTEXT_BUDGET = 60 * 1024;
 // Budget for the code the Critic actually sees (Q3).
 const CRITIC_CODE_BUDGET = 24 * 1024;
+// Completion bar (Q8): a SHIP/CLOSE verdict ships when there are no HIGH findings
+// and at most this many MED findings. Configurable per run via `maxMed`.
+const DEFAULT_MAX_MED = 2;
 const MAX_ROUNDS_CAP = 5;
 
 // Clamp an untrusted round count: NaN/garbage/<=0 -> default, hard cap above.
@@ -294,7 +297,7 @@ class AgentManager {
   }
 
   // Shared bounded round loop with the completion policy documented at the top.
-  async _runRounds({ buildTask, brief, signal, onEvent, maxRounds, includeCodeContext = false }) {
+  async _runRounds({ buildTask, brief, signal, onEvent, maxRounds, includeCodeContext = false, maxMed = DEFAULT_MAX_MED }) {
     const rounds = clampRounds(maxRounds);
     // Capture immutable project context for this build.
     const buildContext = this.projectManager.startBuildContext();
@@ -368,8 +371,10 @@ class AgentManager {
 
         this._emit(onEvent, { type: 'progress', phase: 'review', round, maxRounds: rounds });
         lastReview = await this._review(brief, { signal, onEvent, buildContext });
-        const highOrMed = lastReview.findings.filter((f) => f.severity !== 'LOW');
-        const passed = (lastReview.verdict === 'SHIP' || lastReview.verdict === 'CLOSE') && highOrMed.length === 0;
+        // Completion bar (Q8): no HIGH and at most `maxMed` MED findings ships.
+        const high = lastReview.findings.filter((f) => f.severity === 'HIGH');
+        const med = lastReview.findings.filter((f) => f.severity === 'MED');
+        const passed = (lastReview.verdict === 'SHIP' || lastReview.verdict === 'CLOSE') && high.length === 0 && med.length <= maxMed;
         if (passed) {
           this._emit(onEvent, { type: 'stage', stage: 'success' });
           return { completed: true, round, rounds, entry: lastEntry, review: lastReview, validation };
@@ -411,7 +416,7 @@ class AgentManager {
   }
 
   // Public: create a brand-new game from an idea.
-  async createGame({ idea, projectPath, roles, signal, onEvent, maxRounds = DEFAULT_MAX_ROUNDS }) {
+  async createGame({ idea, projectPath, roles, signal, onEvent, maxRounds = DEFAULT_MAX_ROUNDS, maxMed = DEFAULT_MAX_MED }) {
     this._setRoles(roles);
     await this.projectManager.openProject(projectPath);
     this._emit(onEvent, { type: 'progress', phase: 'brief', round: 0, maxRounds: clampRounds(maxRounds) });
@@ -419,7 +424,7 @@ class AgentManager {
 
     const task = `Implement the game described by this development brief as a real, PLAYABLE project in the current working directory. Create every file in the FILE PLAN. The result must run by opening index.html (or the project's dev server). Prioritise: it must actually run without errors, be fun, and match the brief. Brief:\n\n${brief}`;
 
-    const out = await this._runRounds({ buildTask: task, brief, signal, onEvent, maxRounds });
+    const out = await this._runRounds({ buildTask: task, brief, signal, onEvent, maxRounds, maxMed });
     this._emit(onEvent, { type: 'game:done', result: this._result(out) });
     return {
       brief,
@@ -432,22 +437,22 @@ class AgentManager {
   }
 
   // Public: follow-up improvement on an existing project. User instruction wins.
-  async improveGame({ idea, projectPath, roles, signal, onEvent, maxRounds = DEFAULT_MAX_ROUNDS }) {
-    return this._followUp({ instruction: idea, projectPath, roles, signal, onEvent, maxRounds, label: 'Improving the game…' });
+  async improveGame({ idea, projectPath, roles, signal, onEvent, maxRounds = DEFAULT_MAX_ROUNDS, maxMed = DEFAULT_MAX_MED }) {
+    return this._followUp({ instruction: idea, projectPath, roles, signal, onEvent, maxRounds, maxMed, label: 'Improving the game…' });
   }
 
   // Public: fix a reported bug in ordinary language.
-  async fixGame({ report, projectPath, roles, signal, onEvent, maxRounds = DEFAULT_MAX_ROUNDS }) {
-    return this._followUp({ instruction: `Fix this bug: ${report}`, projectPath, roles, signal, onEvent, maxRounds, label: 'Fixing the bug…' });
+  async fixGame({ report, projectPath, roles, signal, onEvent, maxRounds = DEFAULT_MAX_ROUNDS, maxMed = DEFAULT_MAX_MED }) {
+    return this._followUp({ instruction: `Fix this bug: ${report}`, projectPath, roles, signal, onEvent, maxRounds, maxMed, label: 'Fixing the bug…' });
   }
 
-  async _followUp({ instruction, projectPath, roles, signal, onEvent, maxRounds, label }) {
+  async _followUp({ instruction, projectPath, roles, signal, onEvent, maxRounds, maxMed = DEFAULT_MAX_MED, label }) {
     this._setRoles(roles);
     await this.projectManager.openProject(projectPath);
     const summary = await this.projectManager.getProjectSummary().catch(() => ({ name: '', entry: null, tree: [], manifest: '' }));
     const baseTask = `You are improving an EXISTING game project in the current working directory. Follow the user's instruction literally — do not change the game's core concept unless asked. Respect the existing code style and files.\n\nEXISTING PROJECT:\n${JSON.stringify({ entry: summary.entry, tree: summary.tree.slice(0, 80) }, null, 2)}\n\nUSER INSTRUCTION:\n${instruction}`;
 
-    const out = await this._runRounds({ buildTask: baseTask, brief: '', signal, onEvent, maxRounds, includeCodeContext: true });
+    const out = await this._runRounds({ buildTask: baseTask, brief: '', signal, onEvent, maxRounds, maxMed, includeCodeContext: true });
     this._emit(onEvent, { type: 'game:done', result: this._result(out) });
     return { entry: out.entry, review: out.review, rounds: out.round, completed: out.completed, validation: out.validation };
   }
