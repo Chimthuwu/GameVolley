@@ -2,5 +2,9 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "volleyprompt",
   "compatibility_date": "2025-01-01",
-  "assets": { "directory": "./site" }
+  "assets": { "directory": "./site" },
+  // Sync API bindings — create the KV namespace and R2 bucket, then uncomment and fill in.
+  // See functions/README.md. The deploy step needs wrangler auth and is done manually.
+  // "kv_namespaces": [{ "binding": "SYNC_KV", "id": "<KV_NAMESPACE_ID>" }],
+  // "r2_buckets": [{ "binding": "SYNC_R2", "bucket_name": "<R2_BUCKET_NAME>" }]
 }
