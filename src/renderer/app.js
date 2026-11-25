@@ -226,6 +226,11 @@ $('btnSaveSettings').onclick = () => {
 $('settingsClose').onclick = () => hideSettingsPage();
 $('btnEditKey').onclick = () => { hideSettingsPage(); openModal(false); }; // OpenRouter model catalogue (used for pricing/vision hints)
 let MODEL_ROWS_BY_INPUT = new WeakMap(); // per-input model rows (provider-aware)
+const providerOfInput = (input) => {
+  const selId = (typeof PROVIDER_PAIRS !== 'undefined' && PROVIDER_PAIRS[input.id]) || ({ runAuthor: 'authorProvider', runCritic: 'criticProvider' })[input.id];
+  const el = selId && document.getElementById(selId);
+  return (el && el.value) || 'openrouter';
+};
 async function setupModelAutocomplete(input) {
   const list = document.createElement('div');
   list.className = 'model-ac hidden';
@@ -244,6 +249,8 @@ async function setupModelAutocomplete(input) {
     // Focusing a field that already holds a model id shows the whole list; only actual
     // typing filters it. (Otherwise the field filtered down to its own value and looked empty.)
     const q = freshFocus ? '' : input.value.trim().toLowerCase();
+    const isOpenRouter = providerOfInput(input) === 'openrouter';
+    if (!isOpenRouter) allModelsMode = false;
     const source = allModelsMode && rowsFor().allRows ? rowsFor().allRows : rowsFor().rows;
     items = source.filter((row) => !q || row.id.toLowerCase().includes(q));
     if (!allModelsMode) items = items.slice(0, 300);
@@ -262,11 +269,11 @@ async function setupModelAutocomplete(input) {
       catch { allModelsMode = false; toast('Could not load the full model list.', 6000); }
       render();
     });
-    list.appendChild(more);
+    if (isOpenRouter) list.appendChild(more);
     if (!items.length) {
       const empty = document.createElement('div');
       empty.className = 'model-ac-empty';
-      empty.textContent = q ? 'No matching models' : 'No models available (offline?)';
+      empty.textContent = q ? 'No matching models' : (isOpenRouter ? 'No models available (offline?)' : 'No models found for this provider — check it is connected in Settings.');
       list.appendChild(empty);
       return;
     }
@@ -317,7 +324,12 @@ async function setupModelAutocomplete(input) {
   });
   // Initial OpenRouter model rows (provider-aware fields swap this out later).
   if (!window.__defaultModelRows) window.__defaultModelRows = pv.models().catch(() => []);
-  try { rowsFor().rows = (await window.__defaultModelRows) || []; } catch {}
+  // Only OpenRouter fields start from the OpenRouter catalogue; a provider picked before this
+  // resolved must keep its own models.
+  try {
+    const defaults = (await window.__defaultModelRows) || [];
+    if (providerOfInput(input) === 'openrouter') rowsFor().rows = defaults;
+  } catch {}
 }
 (async () => {
   try { MODEL_ROWS = (await pv.models()) || []; } catch {}
@@ -355,8 +367,8 @@ const PROVIDER_PAIRS = {
 };
 
 async function loadProviderModels(id) {
-  if (PROVIDER_MODEL_CACHE[id]) return PROVIDER_MODEL_CACHE[id];
-  try { PROVIDER_MODEL_CACHE[id] = await pv.providerModels(id); } catch { PROVIDER_MODEL_CACHE[id] = []; }
+  if (PROVIDER_MODEL_CACHE[id] && PROVIDER_MODEL_CACHE[id].length) return PROVIDER_MODEL_CACHE[id];
+  try { PROVIDER_MODEL_CACHE[id] = (await pv.providerModels(id)) || []; } catch { PROVIDER_MODEL_CACHE[id] = []; }
   return PROVIDER_MODEL_CACHE[id];
 }
 
@@ -385,6 +397,12 @@ async function applyProviderToField(input, providerId) {
   } else {
     MODEL_ROWS_BY_INPUT.get(input).rows = await loadProviderModels(providerId);
   }
+  MODEL_ROWS_BY_INPUT.get(input).allRows = null;
+}
+// The live-swap fields on the run screen follow the Writer / Reviewer providers.
+function syncRunInputs(authorProv, criticProv) {
+  applyProviderToField($('runAuthor'), authorProv || $('authorProvider').value || 'openrouter');
+  applyProviderToField($('runCritic'), criticProv || $('criticProvider').value || 'openrouter');
 }
 
 async function applyAllProviderRows() {
@@ -392,6 +410,7 @@ async function applyAllProviderRows() {
     const input = $(inputId), sel = $(selId);
     if (input && sel) await applyProviderToField(input, sel.value);
   }
+  syncRunInputs();
 }
 
 function wireProviderSelect(inputId, selId, storeKey) {
@@ -399,7 +418,17 @@ function wireProviderSelect(inputId, selId, storeKey) {
   if (!sel) return;
   sel.addEventListener('change', async () => {
     store.set(storeKey, sel.value);
-    await applyProviderToField($(inputId), sel.value);
+    const input = $(inputId);
+    await applyProviderToField(input, sel.value);
+    syncRunInputs();
+    const rows = (MODEL_ROWS_BY_INPUT.get(input) || {}).rows || [];
+    if (rows.length && input.value && !rows.some((r) => r.id === input.value)) {
+      const pick = rows.find((r) => r.isFree) || rows[0];
+      const old = input.value;
+      input.value = pick.id;
+      if (inputId === 'author' || inputId === 'critic') store.set(inputId, pick.id);
+      toast(`"${old}" isn't a ${sel.options[sel.selectedIndex]?.textContent || 'provider'} model — switched to ${pick.id}.`, 6000);
+    }
   });
 }
 
@@ -579,6 +608,7 @@ function beginRun(cfg) {
   show('setup', false); show('result', false); show('notesBox', false); show('run');
   $('statusText').textContent = 'Starting…';
   $('runAuthor').value = cfg.author; $('runCritic').value = cfg.critic; $('runModelsHint').textContent = '';
+  syncRunInputs(cfg.authorProvider, cfg.criticProvider);
   if (!cfg.demo) pv.start(cfg);
 }
 
