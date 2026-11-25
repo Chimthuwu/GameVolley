@@ -27,54 +27,50 @@ function setSidebarCollapsed(collapsed) {
 setSidebarCollapsed(store.get('sidebarCollapsed', '0') === '1');
 $('btnSidebarToggle').onclick = () => setSidebarCollapsed(!sidebarEl.classList.contains('sidebar-collapsed'));
 
-// ---- Theme (hue/saturation/contrast) — shifts the actual accent CSS vars via HSL math,
-// so body text stays crisp and only the neon palette moves. Applied immediately to avoid
-// a flash of the default palette before the user's saved preference kicks in. ----
-const THEME_BASE_HSL = {
-  '--neon-cyan': [183, 100, 50],
-  '--neon-magenta': [344, 100, 59],
-  '--neon-green': [156, 100, 51],
-  '--neon-purple': [275, 100, 59],
-};
-// The background, cards, titlebar and dropdown surfaces used to be fixed hexes, so the hue
-// slider only moved the accents and the app still looked purple. Same colours in HSL here.
-const THEME_SURFACE_HSL = {
-  '--bg': [252, 50, 4],
-  '--bg-glow': [251, 65, 19],
-  '--card': [252, 49, 10],
-  '--titlebar-from': [253, 60, 6],
-  '--panel': [275, 55, 8],
-  '--panel-hi': [263, 66, 19],
-};
+// ---- Theme: named presets + fine-tune (hue/saturation/contrast offsets) ----
+// Same preset system as the desktop app; THEMES lives at the top level of
+// src/shared/app-core.js. applyThemePreset(id) sets the preset's explicit values
+// directly and persists the choice; the sliders shift that preset's colours and
+// Reset returns to the untouched preset.
+let activeThemePreset = store.get('themePreset', 'synthwave');
+if (!THEMES[activeThemePreset]) activeThemePreset = 'synthwave';
 function applyTheme({ hue, sat, contrast }) {
   const root = document.documentElement.style;
-  const satOf = (s) => Math.min(100, Math.max(0, s * (sat / 100)));
-  const lumOf = (l) => Math.min(100, Math.max(0, l * (contrast / 100)));
-  for (const [name, [h, s, l]] of Object.entries(THEME_BASE_HSL)) {
-    const newH = ((h + hue) % 360 + 360) % 360;
-    const newS = Math.min(100, Math.max(0, s * (sat / 100)));
-    const newL = Math.min(100, Math.max(0, 50 + (l - 50) * (contrast / 100)));
-    root.setProperty(name, `hsl(${newH.toFixed(0)}, ${newS.toFixed(0)}%, ${newL.toFixed(0)}%)`);
+  const vars = THEMES[activeThemePreset].vars;
+  const identity = (!hue || hue === 0) && sat === 100 && contrast === 100;
+  for (const name of THEME_VARS) {
+    const raw = vars[name];
+    if (raw === undefined) continue;
+    // Identity offsets reproduce the preset verbatim, so Reset returns to it exactly.
+    const base = identity ? null : parseThemeColor(raw);
+    root.setProperty(name, base ? (shiftThemeColor(base, { hue, sat, contrast }) || raw) : raw);
   }
-  // Surfaces: hue follows the accents, lightness follows contrast around its own baseline.
-  for (const [name, [h, s, l]] of Object.entries(THEME_SURFACE_HSL)) {
-    const newH = ((h + hue) % 360 + 360) % 360;
-    root.setProperty(name, `hsl(${newH.toFixed(0)}, ${satOf(s).toFixed(0)}%, ${lumOf(l).toFixed(0)}%)`);
-  }
-  // Field fills and the wash behind the full-page Settings view keep their alpha.
-  const fh = ((252 + hue) % 360 + 360) % 360;
-  root.setProperty('--field', `hsla(${fh.toFixed(0)}, ${satOf(50).toFixed(0)}%, ${lumOf(4).toFixed(0)}%, 0.7)`);
-  const wh = ((270 + hue) % 360 + 360) % 360;
-  root.setProperty('--bg-wash', `hsla(${wh.toFixed(0)}, ${satOf(71).toFixed(0)}%, ${Math.min(40, lumOf(27)).toFixed(0)}%, 0.35)`);
-  // Keep the purple-tinted borders/glow in step with the shifted purple instead of
-  // staying frozen at the original hue.
-  const [ph, ps] = THEME_BASE_HSL['--neon-purple'];
-  const h2 = ((ph + hue) % 360 + 360) % 360;
-  const s2 = Math.min(100, Math.max(0, ps * (sat / 100)));
-  root.setProperty('--line', `hsla(${h2.toFixed(0)}, ${s2.toFixed(0)}%, 50%, 0.3)`);
-  root.setProperty('--line-glow', `hsla(${h2.toFixed(0)}, ${s2.toFixed(0)}%, 50%, 0.8)`);
+  root.colorScheme = THEMES[activeThemePreset].scheme || 'dark';
   // The animated background canvas paints with its own colours — let it re-read them.
   document.dispatchEvent(new Event('vp-theme'));
+}
+function applyThemePreset(id) {
+  if (!THEMES[id]) return;
+  activeThemePreset = id;
+  store.set('themePreset', id);
+  applyTheme(currentThemeValues());
+  markActiveThemePreset();
+}
+const themeSwatchWrap = $('themeSwatches');
+function markActiveThemePreset() {
+  if (!themeSwatchWrap) return;
+  themeSwatchWrap.querySelectorAll('.theme-swatch').forEach((b) => {
+    const on = b.dataset.themePreset === activeThemePreset;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-checked', String(on));
+  });
+}
+if (themeSwatchWrap) {
+  themeSwatchWrap.addEventListener('click', (e) => {
+    const btn = e.target.closest('.theme-swatch');
+    if (btn && THEMES[btn.dataset.themePreset]) applyThemePreset(btn.dataset.themePreset);
+  });
+  markActiveThemePreset();
 }
 const hueInput = $('themeHue'), satInput = $('themeSat'), contrastInput = $('themeContrast');
 hueInput.value = store.get('themeHue', '0');
