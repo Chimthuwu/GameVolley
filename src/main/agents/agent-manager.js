@@ -127,7 +127,6 @@ class AgentManager {
   }
 
   async _review(brief, { signal, onEvent, buildContext }) {
-    this._emit(onEvent, { type: 'agent:status', role: 'critic', status: 'working', message: 'Reviewing the build…' });
     const summary = await this.projectManager.getProjectSummary(buildContext).catch(() => ({ name: '', entry: null, tree: [], manifest: '' }));
     // Q3: the Critic reviews the REAL code, not 6 hand-picked filenames at 1500
     // chars: entry file + all project JS/CSS, head+tail truncated, ~24 KB total.
@@ -140,10 +139,29 @@ class AgentManager {
     const provider = this.providers.getProvider(this._criticId);
     const models = await provider.getModels().catch(() => []);
     const model = this._criticModel || pickAutoModel(models);
+    // Q6: vision Critic — attach the playtest screenshot when the model can see.
+    let messages = [{ role: 'user', content: ctx }];
+    let shotAttached = false;
+    try {
+      const caps = typeof provider.getCapabilities === 'function' ? provider.getCapabilities(model) : null;
+      const preview = this.hooks.getPreview ? this.hooks.getPreview() : null;
+      const shot = caps && caps.supportsVision && preview && typeof preview.capture === 'function'
+        ? await preview.capture()
+        : null;
+      const url = shot && typeof shot.toDataURL === 'function' ? shot.toDataURL() : null;
+      if (url) {
+        messages = [{ role: 'user', content: [
+          { type: 'text', text: ctx },
+          { type: 'image_url', image_url: { url } },
+        ] }];
+        shotAttached = true;
+      }
+    } catch { /* fall back to text-only */ }
+    this._emit(onEvent, { type: 'agent:status', role: 'critic', status: 'working', message: shotAttached ? 'Reviewing the build (with screenshot)…' : 'Reviewing the build…' });
     const res = await provider.chat({
       model,
       system: CRITIC_SYSTEM,
-      messages: [{ role: 'user', content: ctx }],
+      messages,
       signal,
       onDelta: (d) => this._emit(onEvent, { type: 'agent:output', role: 'critic', text: d }),
     });
