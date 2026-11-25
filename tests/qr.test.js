@@ -4,8 +4,8 @@ const assert = require('assert');
 const qr = require('../src/shared/qr.js');
 
 (async () => {
-  const secret = 'AbCdEfGhIjKlMnOpQrStUv'; // 22 chars, the real pairing-code length
-  const encoded = qr.encodeText(secret);
+  const code = 'AbCdEfGhIjKlMnOpQrStUv'; // 22 chars, the real pairing-code length
+  const encoded = qr.encodeText(code);
   assert.strictEqual(encoded.size, 25, 'version 2 is 25x25');
   assert.strictEqual(encoded.version, 2, 'version 2');
   assert.strictEqual(encoded.ecc, 'M', 'ECC level M');
@@ -30,7 +30,7 @@ const qr = require('../src/shared/qr.js');
 
   // Reed-Solomon correctness: generator roots are α^0..α^15, so the full codeword
   // polynomial must evaluate to zero at every one of them.
-  const data = qr.dataCodewords(secret);
+  const data = qr.dataCodewords(code);
   assert.strictEqual(data.length, 28, '28 data codewords');
   assert.strictEqual(data[0] >>> 4, 0b0100, 'byte mode indicator');
   const ecc = qr.rsRemainder(data);
@@ -44,16 +44,16 @@ const qr = require('../src/shared/qr.js');
     assert.strictEqual(y, 0, `codeword polynomial vanishes at α^${root}`);
   }
 
-  const svg = qr.renderSvg(secret, { scale: 3, margin: 2 });
+  const svg = qr.renderSvg(code, { scale: 3, margin: 2 });
   assert.match(svg, /^<svg/, 'produces an SVG document');
   assert.match(svg, /width="87" height="87"/, '25+2*2 modules at scale 3 = 87px');
   assert.match(svg, /aria-label="Pairing code QR"/, 'accessible label');
   assert.ok(svg.includes('<rect'), 'contains module rectangles');
 
   assert.throws(() => qr.encodeText('x'.repeat(27)), /too long/, 'oversized input rejected');
-  assert.notDeepStrictEqual(qr.encodeText(secret).modules, qr.encodeText('other-secret-abcdefgh').modules,
-    'different secrets produce different matrices');
-  assert.deepStrictEqual(qr.encodeText(secret).modules, encoded.modules, 'encoding is deterministic');
+  assert.notDeepStrictEqual(qr.encodeText(code).modules, qr.encodeText('other-code-abcdefgh').modules,
+    'different codes produce different matrices');
+  assert.deepStrictEqual(qr.encodeText(code).modules, encoded.modules, 'encoding is deterministic');
 
   console.log('qr.test.js: PASSED');
 })().catch((e) => { console.error(e); process.exitCode = 1; });
