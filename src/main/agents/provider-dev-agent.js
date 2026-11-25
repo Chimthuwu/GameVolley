@@ -50,6 +50,10 @@ GAME ENGINE GUIDELINES (apply those relevant to this game):
 - Pool only high-churn objects (projectiles, particles). Reset every field on reuse and handle pool exhaustion.
 - Return complete files in the required file-block format. Do not truncate.`;
 
+// Q9: explicit max_tokens for provider-dev chat calls — full-file outputs must
+// not be silently cut off by a provider default (the parser rejects truncation).
+const MAX_DEV_TOKENS = 32768;
+
 class ProviderDevAgent {
   // provider: a lib/providers instance (getProvider(id)) result — exposes chat().
   // projectManager: ProjectManager instance (writeFile validates paths).
@@ -81,17 +85,20 @@ class ProviderDevAgent {
     this._check(signal);
     this._emit(onEvent, { type: 'stage', stage: 'generating' });
     this._emit(onEvent, { type: 'output', agent: this.id, text: `Asking ${this.providerId} to build the files…` });
-    const call = (system, messages) => this.provider.chat({
+    const call = (system, messages, maxTokens = null) => this.provider.chat({
       model: model || null,
       system,
       messages,
       signal,
+      maxTokens,
       onDelta: (d) => this._emit(onEvent, { type: 'output', agent: this.id, text: d }),
     });
 
     const root = this.projectManager.active && this.projectManager.active.path;
     if (!root) throw new Error('No active project. Open or create one first.');
-    const res = await call(DEV_SYSTEM + GAME_GUIDELINES, [{ role: 'user', content: prompt }]);
+    // Q9: explicit max_tokens so large full-file outputs are not silently cut off
+    // by a provider default (the parser already rejects truncation whole).
+    const res = await call(DEV_SYSTEM + GAME_GUIDELINES, [{ role: 'user', content: prompt }], MAX_DEV_TOKENS);
     this._check(signal);
 
     this._emit(onEvent, { type: 'stage', stage: 'parsing' });

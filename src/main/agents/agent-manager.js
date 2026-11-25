@@ -56,6 +56,26 @@ function pickAutoModel(models) {
   return (free || models[0]).id;
 }
 
+// Q9: for Director/Critic with no explicit model, prefer a CONNECTED CLI provider
+// (subscription-billed — no per-token cost) over a free API model, so the two
+// quality-critical roles use the strongest model the user actually has. Paid API
+// keys are deliberately NOT auto-selected: auto-billing needs consent. The lookup
+// is cached per AgentManager instance (CLI detection spawns processes).
+async function pickStrongAutoModel(providers) {
+  try {
+    if (typeof providers.getProviderStatuses !== 'function') return null;
+    const statuses = await providers.getProviderStatuses();
+    for (const [id, st] of Object.entries(statuses || {})) {
+      if (!st || !st.connected) continue;
+      const p = providers.getProvider(id);
+      if (!p || p.authType !== 'cli') continue; // subscription CLI only, never paid API
+      const models = await p.getModels().catch(() => []);
+      if (models.length) return { providerId: id, model: pickAutoModel(models) };
+    }
+  } catch { /* offline or registry unavailable: fall back to prefer-free */ }
+  return null;
+}
+
 const CREATIVE_DIRECTOR_SYSTEM = `You are the Creative Director for an AI game studio. Given a short, often silly game idea, produce a concise DEVELOPMENT BRIEF that a coding agent will implement as a real, playable game. Be decisive and concrete.
 
 Include exactly these sections:
@@ -113,10 +133,31 @@ class AgentManager {
 
   _emit(onEvent, ev) { onEvent && onEvent(ev); }
 
-  async _brief(idea, { signal, onEvent }) {
-    const provider = this.providers.getProvider(this._directorId);
+  // Q9: model auto-pick for the quality-critical roles. Explicit model wins;
+  // otherwise prefer a CONNECTED CLI provider (subscription — no per-token cost);
+  // otherwise the chosen provider's prefer-free pick. Cached per instance.
+  async _autoRoleModel(role) {
+    const explicit = role === 'director' ? this._directorModel : this._criticModel;
+    const fallbackId = role === 'director' ? this._directorId : this._criticId;
+    if (explicit) return { providerId: fallbackId, model: explicit };
+    const strong = await this._strongAutoModel();
+    if (strong) return strong;
+    const provider = this.providers.getProvider(fallbackId);
     const models = await provider.getModels().catch(() => []);
-    const model = this._directorModel || pickAutoModel(models);
+    return { providerId: fallbackId, model: pickAutoModel(models) };
+  }
+
+  async _strongAutoModel() {
+    if (this._strongAutoCache === undefined) {
+      this._strongAutoCache = await pickStrongAutoModel(this.providers).catch(() => null);
+    }
+    return this._strongAutoCache;
+  }
+
+  async _brief(idea, { signal, onEvent }) {
+    const picked = await this._autoRoleModel('director');
+    const provider = this.providers.getProvider(picked.providerId);
+    const model = picked.model;
     this._emit(onEvent, { type: 'agent:status', role: 'director', status: 'working', message: 'Writing the development brief…' });
     const res = await provider.chat({
       model,
@@ -139,9 +180,9 @@ class AgentManager {
       header: 'PROJECT CODE',
     });
     const ctx = `DEVELOPMENT BRIEF:\n${brief}\n\nPROJECT SUMMARY:\n${JSON.stringify({ entry: summary.entry, tree: summary.tree.slice(0, 60) }, null, 2)}${codeCtx}`;
-    const provider = this.providers.getProvider(this._criticId);
-    const models = await provider.getModels().catch(() => []);
-    const model = this._criticModel || pickAutoModel(models);
+    const picked = await this._autoRoleModel('critic');
+    const provider = this.providers.getProvider(picked.providerId);
+    const model = picked.model;
     // Q6: vision Critic — attach the playtest screenshot when the model can see.
     let messages = [{ role: 'user', content: ctx }];
     let shotAttached = false;
