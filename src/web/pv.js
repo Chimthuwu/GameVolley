@@ -40,6 +40,56 @@
     push: (state) => syncClientLocal ? syncClientLocal.push(state || {}) : null,
   };
 
+  // ---- B2 scaffold on web: File System Access API, with a ZIP download fallback ----
+  window.GameVolleyScaffoldWeb = {
+    supported: typeof window.showDirectoryPicker === 'function',
+    lastHandle: null,
+    async pick() {
+      if (!this.supported) return null;
+      this.lastHandle = await window.showDirectoryPicker();
+      return this.lastHandle.name;
+    },
+    async write(files, merge) {
+      const scaffoldLib = window.GameVolleyScaffold;
+      if (!scaffoldLib) throw new Error('Scaffold support is not loaded.');
+      if (!this.supported) throw new Error('This browser cannot write folders. Use the ZIP download instead.');
+      if (!Array.isArray(files) || !files.length) throw new Error('Nothing to write');
+      const handle = this.lastHandle || await window.showDirectoryPicker();
+      this.lastHandle = handle;
+      let count = 0;
+      for (const file of files) {
+        if (!scaffoldLib.isValidPath(file.path)) throw new Error(`Unsafe scaffold path: ${file.path}`);
+        const parts = file.path.split('/');
+        let dir = handle;
+        for (const part of parts.slice(0, -1)) dir = await dir.getDirectoryHandle(part, { create: true });
+        const name = parts[parts.length - 1];
+        let existing = false;
+        try { await dir.getFileHandle(name); existing = true; } catch (_) { /* new file */ }
+        if (existing && !merge) throw new Error(`Destination already contains ${file.path}. Confirm a merge to overwrite.`);
+        const fileHandle = await dir.getFileHandle(name, { create: true });
+        const writable = await fileHandle.createWritable();
+        await writable.write(file.content);
+        await writable.close();
+        count++;
+      }
+      return { count, files: files.map((f) => f.path) };
+    },
+    async downloadZip(files) {
+      const scaffoldLib = window.GameVolleyScaffold;
+      if (!scaffoldLib) throw new Error('Scaffold support is not loaded.');
+      const bytes = scaffoldLib.toZip(files || []);
+      const url = URL.createObjectURL(new Blob([bytes], { type: 'application/zip' }));
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'gamevolley-scaffold.zip';
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+      return { count: (files || []).length, downloaded: true };
+    },
+  };
+
   const AUTHOR_SYSTEM = `You are an expert prompt engineer. The user wants a prompt they can give to an AI coding assistant to build a game or app. Write a clear, complete, well-structured prompt: goal, tech stack, core features, constraints, scope/milestones, and what 'done' looks like. Make reasonable assumptions explicit instead of leaving gaps. When given critic feedback, revise accordingly and keep what already works. Output ONLY the prompt itself, no preamble or commentary.`;
 
   const CRITIC_SYSTEM = `You are a harsh but fair reviewer of AI prompts. Review the prompt against this rubric:
@@ -593,19 +643,26 @@ VERDICT: APPROVE if there are no HIGH issues left, otherwise VERDICT: REVISE.`;
     },
     utility: async (cfg) => {
       if (!loadKey()) throw new Error('No API key yet. Open Settings and paste it.');
-      const kinds = new Set(['testdrive', 'annotate', 'variant']);
+      const kinds = new Set(['testdrive', 'annotate', 'variant', 'scaffold', 'scaffold-critic']);
       if (!cfg || !kinds.has(cfg.kind) || typeof cfg.prompt !== 'string' || cfg.prompt.length > 200000) throw new Error('Invalid utility request.');
       const model = String(cfg.model || '').slice(0, 200);
       // Optional steer for a variant ("make it mobile-first, drop the audio"), capped like main.js.
       const instruction = String(cfg.instruction || '').slice(0, 800).trim();
       const userContent = cfg.kind === 'variant' && instruction
         ? `${cfg.prompt}\n\nVARIANT INSTRUCTION FROM THE USER (apply it, keep the rest of the prompt coherent and complete):\n${instruction}`
-        : cfg.prompt;
+        : cfg.kind === 'scaffold' && instruction
+          ? `${cfg.prompt}\n\nREVIEWER FIXES TO APPLY to the scaffold manifest:\n${instruction}`
+          : cfg.prompt;
+      const scaffoldLib = window.GameVolleyScaffold;
       const system = cfg.kind === 'testdrive'
-        ? 'You are a pragmatic software architect. Return a concise build plan, first milestones, likely components and ambiguities for this prompt. Do not implement it.'
-        : cfg.kind === 'annotate'
-          ? 'Explain why each major section of this prompt exists. Preserve its wording and add a concise rationale after each section. Output only the annotated prompt.'
-          : 'Create a meaningfully different but equally viable alternative prompt, preserving goal and constraints. Output only the full prompt.';
+          ? 'You are a pragmatic software architect. Return a concise build plan, first milestones, likely components and ambiguities for this prompt. Do not implement it.'
+          : cfg.kind === 'annotate'
+            ? 'Explain why each major section of this prompt exists. Preserve its wording and add a concise rationale after each section. Output only the annotated prompt.'
+            : cfg.kind === 'scaffold' && scaffoldLib
+              ? scaffoldLib.SCAFFOLD_AUTHOR_SYSTEM + '\n\n' + scaffoldLib.depthForCycles(cfg.cycles).instruction
+              : cfg.kind === 'scaffold-critic' && scaffoldLib
+                ? scaffoldLib.SCAFFOLD_CRITIC_SYSTEM
+                : 'Create a meaningfully different but equally viable alternative prompt, preserving goal and constraints. Output only the full prompt.';
       const startedAt = Date.now();
       const res = await fetch(`${API}/chat/completions`, { method: 'POST', headers: { Authorization: `Bearer ${loadKey()}`, 'Content-Type': 'application/json', 'HTTP-Referer': location.origin, 'X-Title': 'VolleyPrompt' }, body: JSON.stringify({ model, stream: false, messages: [{ role: 'system', content: system }, { role: 'user', content: userContent }] }) });
       if (!res.ok) throw new Error(friendly(res.status, await res.text().catch(() => '')));

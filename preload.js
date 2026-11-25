@@ -52,4 +52,5 @@ contextBridge.exposeInMainWorld('pv', {
   // B1: direct handoff. Hermes starts locally; no Discord message is ever sent.
   hermesStart: inv('handoff:hermes'),
   onHandoffEvent: (cb) => ipcRenderer.on('handoff:event', (_e, ev) => cb(ev)),
+  scaffoldPickDir: inv('dialog:openDir'), scaffoldWrite: inv('scaffold:write'),
 });

@@ -8,6 +8,8 @@ const providerModule = require('./lib/providers.js');
 const pairing = require('./src/shared/pairing.js');
 const syncClient = require('./src/shared/sync-client.js');
 const { createPairingStore } = require('./lib/pairing-store.js');
+const scaffoldWriter = require('./lib/scaffold-writer.js');
+const scaffoldLib = require('./src/shared/scaffold.js');
 
 // GameVolley: the real local development workspace, embedded preview, and the
 // multi-role coding-agent orchestration that turns an idea into a playable game.
@@ -614,7 +616,7 @@ const verdictOf = (t) => {
 };
 
 ipcMain.handle('utility:call', async (_e, cfg) => {
-  const allowed = new Set(['testdrive', 'annotate', 'variant']);
+  const allowed = new Set(['testdrive', 'annotate', 'variant', 'scaffold', 'scaffold-critic']);
   if (!cfg || !allowed.has(cfg.kind) || typeof cfg.prompt !== 'string' || cfg.prompt.length > 200000) throw new Error('Invalid utility request.');
   const model = String(cfg.model || '').slice(0, 200);
   if (!model) throw new Error('Choose a model first.');
@@ -623,12 +625,18 @@ ipcMain.handle('utility:call', async (_e, cfg) => {
   const instruction = String(cfg.instruction || '').slice(0, 800).trim();
   const userContent = cfg.kind === 'variant' && instruction
     ? `${cfg.prompt}\n\nVARIANT INSTRUCTION FROM THE USER (apply it, keep the rest of the prompt coherent and complete):\n${instruction}`
-    : cfg.prompt;
+    : cfg.kind === 'scaffold' && instruction
+      ? `${cfg.prompt}\n\nREVIEWER FIXES TO APPLY to the scaffold manifest:\n${instruction}`
+      : cfg.prompt;
   const system = cfg.kind === 'testdrive'
     ? 'You are a pragmatic software architect. Read this build prompt and return a concise, concrete build plan: the actual product, first implementation milestones, likely files/components, and any ambiguous requirement that could cause a wrong build. Do not implement it.'
     : cfg.kind === 'annotate'
       ? 'Explain the intent of each major section of the supplied prompt in concise inline annotations. Preserve the original section wording and add a one-line rationale after each section. Output only the annotated prompt.'
-      : 'Create a meaningfully different but equally viable alternative to the supplied prompt. Preserve the user goal and constraints. Output only the full alternative prompt.';
+      : cfg.kind === 'scaffold'
+        ? scaffoldLib.SCAFFOLD_AUTHOR_SYSTEM + '\n\n' + scaffoldLib.depthForCycles(cfg.cycles).instruction
+        : cfg.kind === 'scaffold-critic'
+          ? scaffoldLib.SCAFFOLD_CRITIC_SYSTEM
+          : 'Create a meaningfully different but equally viable alternative to the supplied prompt. Preserve the user goal and constraints. Output only the full alternative prompt.';
   const provId = cfg.provider || 'openrouter';
   const provider = providerModule.getProvider(provId);
   const st = await provider.getStatus();
@@ -985,6 +993,12 @@ ipcMain.handle('dialog:openDir', async () => {
     const res = await dialog.showOpenDialog(win, { properties: ['openDirectory', 'createDirectory'] });
     return res.canceled ? null : res.filePaths[0];
   } catch { return null; }
+});
+// B2 scaffold: writing happens only in the main process, after an explicit destination
+// choice and preview confirmation from the renderer.
+ipcMain.handle('scaffold:write', async (_e, destination, files, merge) => {
+  try { return scaffoldWriter.writeFiles(destination, files, !!merge); }
+  catch (e) { throw new Error(e.message || String(e)); }
 });
 
 // Which coding agents are actually installed (so the UI can disable unavailable ones).

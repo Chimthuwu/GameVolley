@@ -20,6 +20,9 @@
 .handoff-dest { min-width: 8rem; }
 .handoff-card .row { gap: 1rem; flex-wrap: wrap; }
 
+.scaffold-preview { white-space: pre-wrap; max-height: 16rem; overflow: auto; margin: 0.75rem 0; padding: 0.6rem; border: 1px solid var(--line, rgba(255,255,255,0.12)); border-radius: 6px; font-family: var(--mono, monospace); font-size: 0.82rem; }
+.scaffold-card .row { gap: 1rem; flex-wrap: wrap; }
+
 
 /* ============================================================
    VolleyPrompt — Cyberpunk / Synthwave Terminal

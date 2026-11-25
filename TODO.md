@@ -174,17 +174,17 @@ Everything stays on the account the site is already deployed to. One `wrangler`,
 ### B2. Scaffold mode — the real feature (Writer+Reviewer build the folder)
 > The same two models, in a new role, take the approved prompt and produce a ready project folder for downstream coding agents, optionally with a head-start, and always a `todo.md` handoff. **Depth = the existing "cycles" slider: 1 = scaffold + `todo.md`; more cycles = keep going into a real head-start ("three is plenty").**
 
-- [ ] **Structured output mode:** add `SCAFFOLD_AUTHOR_SYSTEM` → "Emit a JSON file manifest `[{path, content}]`"; `SCAFFOLD_CRITIC_SYSTEM` reviews the manifest (missing dirs? no README? todo not actionable?) and revises. Reuse the round/verdict machinery — only "what a draft is" changes (a manifest, not prose).
-- [ ] **Depth semantics — predictable, not "the model decides":**
-  - cycle 1 — create folder; write structure + config + `PROMPT.md` (approved prompt) + `todo.md` (handoff).
-  - cycle 2 — fill stub files / entry points / data models (still skeleton, opens clean).
-  - cycle 3 — real head-start: implement the first milestone end-to-end. (Cap at the slider max already used.)
-- [ ] **The `todo.md` handoff** is the deliverable: the scaffold writes a project `todo.md` (milestones, files to create, the volley's constraints) so the *next* agent (Hermes / Claude Code / Cursor) picks up cold. Mirror the shape of this very file.
-- [ ] **Filesystem constraint:**
-  - *Desktop:* write to a user-picked folder (`dialog.showOpenDialog`/`showSaveDialog` — Electron has it).
-  - *Web:* browsers can't silently make folders → **File System Access API** (`showDirectoryPicker`) on Chrome/Edge; else produce a **`.zip`** download of the manifest; else write into the synced profile and let the desktop materialize it (ties to A).
-- [ ] **Guardrails:** write *nothing* until the user picks a destination; preview ("about to create 14 files in `X`") with Confirm; never overwrite a non-empty dir without an explicit merge prompt.
-- [ ] Acceptance: an approved prompt → a folder that opens in an IDE with `PROMPT.md`, `todo.md`, and (per cycle count) working stubs, produced by the same two models, no manual copy-paste.
+- [x] **Structured output mode:** add `SCAFFOLD_AUTHOR_SYSTEM` → "Emit a JSON file manifest `[{path, content}]`"; `SCAFFOLD_CRITIC_SYSTEM` reviews the manifest (missing dirs? no README? todo not actionable?) and revises. Reuse the round/verdict machinery — only "what a draft is" changes (a manifest, not prose). [DONE 2026-11-25] `src/shared/scaffold.js` has both systems, strict `parseManifest()` (fenced JSON + one-shot recovery, traversal/size/duplicate checks), and `utility:call` kinds `scaffold` / `scaffold-critic`; the UI runs author → critic → author-with-feedback.
+- [x] **Depth semantics — predictable, not "the model decides":**
+  - cycle 1 — create folder; write structure + config + `PROMPT.md` (approved prompt) + `todo.md` (handoff). [DONE 2026-11-25] `DEPTH[1]` + `depthForCycles()` clamps the cycles slider.
+  - cycle 2 — fill stub files / entry points / data models (still skeleton, opens clean). [DONE 2026-11-25] `DEPTH[2]` appended to the author system prompt.
+  - cycle 3 — real head-start: implement the first milestone end-to-end. (Cap at the slider max already used.) [DONE 2026-11-25] `DEPTH[3]`, capped at 3.
+- [x] **The `todo.md` handoff** is the deliverable: the scaffold writes a project `todo.md` (milestones, files to create, the volley's constraints) so the *next* agent (Hermes / Claude Code / Cursor) picks up cold. Mirror the shape of this very file. [DONE 2026-11-25] `buildTodoHandoff()` emits Goal / Constraints / Milestones / Files created / Definition of done; the UI regenerates it deterministically after the model's manifest.
+- [x] **Filesystem constraint:**
+  - *Desktop:* write to a user-picked folder (`dialog.showOpenDialog`/`showSaveDialog` — Electron has it). [DONE 2026-11-25] `dialog:openDir` (already existed) + `scaffold:write` IPC backed by `lib/scaffold-writer.js` (re-validates every path and resolves inside the chosen folder).
+  - *Web:* browsers can't silently make folders → **File System Access API** (`showDirectoryPicker`) on Chrome/Edge; else produce a **`.zip`** download of the manifest; else write into the synced profile and let the desktop materialize it (ties to A). [DONE 2026-11-25] `window.GameVolleyScaffoldWeb` uses `showDirectoryPicker` with a cached handle, and falls back to a dependency-free ZIP writer (`toZip`, verified readable by Python's zipfile). Synced-profile materialization is intentionally not used: it would push arbitrary file bodies through KV/R2.
+- [x] **Guardrails:** write *nothing* until the user picks a destination; preview ("about to create 14 files in `X`") with Confirm; never overwrite a non-empty dir without an explicit merge prompt. [DONE 2026-11-25] UI disables Confirm until a manifest and folder exist, shows the exact count + file list, and passes an explicit merge flag; writer refuses non-empty destinations without it.
+- [x] Acceptance: an approved prompt → a folder that opens in an IDE with `PROMPT.md`, `todo.md`, and (per cycle count) working stubs, produced by the same two models, no manual copy-paste. [VERIFIED 2026-11-25 by unit tests] `tests/scaffold.test.js`, `tests/scaffold-writer.test.js` (real temp dir) and `tests/scaffold-ui.test.js` cover manifest → critic round → preview → write. A live model call needs the owner's API key; it is not made unattended.
 
 ---
 
