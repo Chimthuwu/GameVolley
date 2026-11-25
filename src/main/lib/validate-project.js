@@ -127,6 +127,20 @@ async function validateProject({ root, preview = null, entryFile = 'index.html',
     if (!r.ready) blocking.push('Preview never reported ready');
     r.errors.forEach((e) => blocking.push(`Runtime error: ${e}`));
     checks.push('runtime');
+    // 4b. Playtest probe (Q5): the canvas must actually change over time and the
+    // page must react to input. A frozen/blank canvas is a blocking finding.
+    if (typeof preview.playtestProbe === 'function') {
+      const probe = await preview.playtestProbe().catch(() => null);
+      if (probe && probe.ran) {
+        emit({ type: 'playtest', canvas: probe.canvas, changed: probe.changed, rafTicks: probe.rafTicks, pageVisible: probe.pageVisible, empty: probe.empty, uniform: probe.uniform });
+        if (!probe.canvas) warnings.push('Playtest probe: no <canvas> found; DOM-only games pass but are not visually verified');
+        else if (probe.rafTicks !== undefined && probe.rafTicks <= 1) warnings.push('Playtest probe inconclusive: the page produced no animation frames (window hidden or compositor stalled)');
+        else if (probe.changed === false && probe.empty) blocking.push('Playtest probe: the canvas was never drawn to (all pixels transparent) — the game is blank');
+        else if (probe.changed === false && probe.uniform) warnings.push('Playtest probe: canvas is painted but static — check that the game updates over time and reacts to input');
+        else if (probe.changed === false) warnings.push('Playtest probe: canvas did not change during the probe window — the game may be static or unresponsive');
+        checks.push('playtest');
+      }
+    }
   } else {
     warnings.push('Runtime check skipped (no preview available); this is NOT proof the game runs');
   }

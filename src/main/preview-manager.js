@@ -124,6 +124,10 @@ class PreviewManager {
         sandbox: true,
         webSecurity: true,
         allowRunningInsecureContent: false,
+        // The validation gate plays the game even while the window is hidden;
+        // background rAF throttling would freeze every animation and make the
+        // playtest probe (Q5) flag working games as blank.
+        backgroundThrottling: false,
       },
     });
     if (this.window && this.window.contentView) this.window.contentView.addChildView(view);
@@ -249,6 +253,65 @@ class PreviewManager {
 
   reload() {
     if (this.view) this.view.webContents.reload();
+  }
+
+  // Q5: playtest probe. Samples the canvas + counts rAF ticks around real input
+  // events; a canvas that never changes while the page IS animating is the
+  // blank-game signature the validation gate turns into a blocking finding.
+  // Chromium never paints hidden windows (rAF stalls there), so `rafTicks <= 1`
+  // marks the probe inconclusive instead of guilty.
+  async playtestProbe({ intervalMs = 1200 } = {}) {
+    const wc = this.view && this.view.webContents;
+    if (!wc || wc.isDestroyed()) return { ran: false, reason: 'no preview webContents' };
+    const grab = `const grab = () => { try { const t = document.createElement('canvas'); t.width = c.width || 300; t.height = c.height || 150; t.getContext('2d').drawImage(c, 0, 0); const d = t.toDataURL(); let s = 0; for (let i = 0; i < 256; i++) s = (s + d.charCodeAt(d.length - 1 - i * 7)) % 99991; return { data: d, len: d.length, sum: s }; } catch (e) { return { data: '', err: e.message }; } };`;
+    const stats = `const stats = () => { try { const g = c.getContext('2d'); if (!g) return null; const w = c.width || 300, h = c.height || 150; const d = g.getImageData(0, 0, w, h).data; let uniform = true, empty = true; const p0 = [d[0], d[1], d[2], d[3]]; for (let i = 4; i < d.length; i += 4) { if (d[i + 3] !== 0) empty = false; if (d[i] !== p0[0] || d[i + 1] !== p0[1] || d[i + 2] !== p0[2] || d[i + 3] !== p0[3]) uniform = false; } return { uniform, empty }; } catch (e) { return null; } };`;
+    const firstScript = `(() => {
+      const c = document.querySelector('canvas');
+      if (!c) return Promise.resolve({ canvas: false });
+      ${grab}
+      ${stats}
+      const f1 = grab();
+      const st = stats();
+      return new Promise((res) => {
+        let ticks = 0; const t0 = Date.now();
+        function tick() { ticks++; if (Date.now() - t0 < 600) requestAnimationFrame(tick); }
+        requestAnimationFrame(tick);
+        setTimeout(() => res({ canvas: true, frame: f1.data, len1: f1.len, sum1: f1.sum, stat: st, pageVisible: document.visibilityState === 'visible', rafTicks: ticks }), 800);
+      });
+    })()`;
+    const secondScript = `(() => {
+      const c = document.querySelector('canvas');
+      if (!c) return { canvas: false };
+      ${grab}
+      const f2 = grab();
+      return { canvas: true, frame: f2.data, len2: f2.len, sum2: f2.sum };
+    })()`;
+    let first;
+    try { first = await wc.executeJavaScript(firstScript, true); } catch (e) { return { ran: false, reason: String(e.message || e) }; }
+    if (!first || !first.canvas) return { ran: true, canvas: false };
+    // Real (trusted) input events first; games listening on window/document get
+    // these, and key/mouse handling is the "responsive" half of the probe.
+    try { wc.sendInputEvent({ type: 'keyDown', keyCode: 'Right' }); } catch {}
+    try { wc.sendInputEvent({ type: 'keyUp', keyCode: 'Right' }); } catch {}
+    try { wc.sendInputEvent({ type: 'mouseMove', x: 60, y: 60 }); } catch {}
+    await new Promise((r) => setTimeout(r, intervalMs));
+    let second;
+    try { second = await wc.executeJavaScript(secondScript, true); } catch (e) { return { ran: true, canvas: true, changed: null, rafTicks: first.rafTicks, reason: String(e.message || e) }; }
+    return {
+      ran: true, canvas: true,
+      changed: first.frame !== second.frame,
+      rafTicks: first.rafTicks, pageVisible: first.pageVisible,
+      empty: first.stat ? first.stat.empty : null,
+      uniform: first.stat ? first.stat.uniform : null,
+      len1: first.len1, len2: second.len2, sum1: first.sum1, sum2: second.sum2,
+    };
+  }
+
+  // Full-page screenshot for the vision Critic (Q6); null when unavailable.
+  async capture() {
+    const wc = this.view && this.view.webContents;
+    if (!wc || wc.isDestroyed()) return null;
+    try { return await wc.capturePage(); } catch { return null; }
   }
 
   async close() {

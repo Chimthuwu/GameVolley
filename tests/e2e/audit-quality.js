@@ -29,7 +29,7 @@ addEventListener('keydown',e=>keys[e.key]=1);addEventListener('keyup',e=>keys[e.
 let orbs=[{x:100,y:100}],last=0;
 function loop(t){const dt=Math.min(0.05,(t-last)/1000);last=t;if(keys.ArrowLeft)px-=300*dt;if(keys.ArrowRight)px+=300*dt;
 x.fillStyle='#111';x.fillRect(0,0,640,400);x.fillStyle='#0ff';x.fillRect(px,360,40,10);
-for(const o of orbs){o.y+=80*dt;x.fillStyle='#f0f';x.beginPath();x.arc(o.x,o.y,8,0,7);x.fill();if(o.y>360&&Math.abs(o.x-px-20)<30){score++;o.y=0;o.x=Math.random()*600}}
+for(const o of orbs){o.y+=80*dt;x.fillStyle='#f0f';x.beginPath();x.arc(o.x,o.y,8,0,7);x.fill();if(o.y>360&&Math.abs(o.x-px-20)<30){score++;o.y=0;o.x=Math.random()*600}else if(o.y>420){o.y=0;o.x=Math.random()*600}}
 x.fillStyle='#fff';x.fillText('score '+score,10,20);requestAnimationFrame(loop)}requestAnimationFrame(loop);
 </script></body></html>`,
   // Loop runs, nothing is ever drawn, no input handler at all: a "game" that is a black rectangle.
@@ -79,14 +79,21 @@ async function runScenario(name, devText, criticScript, rawDevText = false) {
       return { text: rawDevText ? devText : devFiles(devText) };
     },
   };
-  const win = new BrowserWindow({ width: 900, height: 700, show: false });
+  // Visible so the playtest probe (Q5) can actually observe animation: Chromium
+  // never paints hidden windows, so rAF-driven games are frozen there.
+  const win = new BrowserWindow({ width: 900, height: 700, show: true });
   const pm = new ProjectManager(() => {});
   try { pm.checkpoints.setSnapshotRoot(path.join(tmp, '_cp')); } catch {}
   const preview = new PreviewManager({ window: win, onEvent: () => {} });
   const mgr = new AgentManager({
     providers: { getProvider: () => fake }, agents: {}, projectManager: pm,
     hooks: {
-      loadPreview: ({ projectPath, entry }) => preview.loadProject({ projectPath, entry }).catch(() => {}),
+      loadPreview: async ({ projectPath, entry }) => {
+        await preview.loadProject({ projectPath, entry }).catch(() => {});
+        // Without bounds the WebContentsView is never composited: rAF stalls and
+        // the playtest probe cannot observe anything.
+        try { if (preview.view) preview.view.setBounds({ x: 0, y: 0, width: 800, height: 600 }); } catch {}
+      },
       getPreview: () => preview,
     },
   });
@@ -126,6 +133,8 @@ app.whenReady().then(async () => {
     results.push(r);
     console.log(`\n=== ${k} === completed=${r.completed} rounds=${r.rounds} err=${r.err || '-'} ms=${r.ms}`);
     console.log('  validation failures per round:', JSON.stringify(r.validationFailures));
+    console.log('  playtest:', JSON.stringify(r.log.events.filter((e) => e.type === 'playtest')));
+    console.log('  events:', JSON.stringify(r.log.events.filter((e) => ['preview:error', 'preview:fail', 'preview:load', 'preview:ready', 'stage'].includes(e.type)).slice(0, 12)));
     console.log('  files left in project after run:', JSON.stringify(r.projFiles));
 
     if (k === 'good' || k === 'audio' || k === 'cdn') {
@@ -133,7 +142,7 @@ app.whenReady().then(async () => {
     } else if (k === 'missingRef') {
       assert(r.completed !== true, 'missingRef: a game referencing a missing file must not complete');
     } else if (k === 'blank') {
-      assertKnownBad(r.completed === true, 'blank: black-canvas game still passes validation (Q5 must fail it)');
+      assert(r.completed !== true, 'blank: black-canvas game must fail validation (Q5 playtest probe)');
     } else if (k === 'lateCrash') {
       assert(r.completed !== true, 'lateCrash: runtime error 3s after load must fail validation (Q4)');
     }
