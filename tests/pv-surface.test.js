@@ -41,9 +41,9 @@ function objectKeys(src, marker) {
 
   const desktopOnly = desktop.filter((k) => !web.includes(k));
   const gameVolleyOnly = desktopOnly.filter((k) =>
-    /^(project|checkpoint|openDir|openRun|coding|agent|preview|gameOnEvent|sync|provider)/.test(k));
+    /^(project|checkpoint|openDir|openRun|coding|agent|preview|gameOnEvent|sync|provider|hermes|onHandoff)/.test(k));
   assert.strictEqual(desktopOnly.length, gameVolleyOnly.length,
-    'all desktop-only methods are GameVolley-workspace or sync methods, not shared-UI drift: ' + desktopOnly.join(', '));
+    'all desktop-only methods are workspace/handoff/sync methods, not shared-UI drift: ' + desktopOnly.join(', '));
 
   // The web build never loads gamevolley.js, so those extra methods are unreachable there.
   const webHtml = fs.readFileSync(path.join(root, 'src', 'web', 'index.html'), 'utf8');

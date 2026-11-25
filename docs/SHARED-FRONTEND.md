@@ -41,8 +41,9 @@ Audited by comparing the method names in `preload.js` (`exposeInMainWorld`) with
   through `sync-boot.js`.
 - Desktop-only methods are GameVolley workspace methods (`project*`, `checkpoint*`,
   `preview*`, `agent*`, `gameOnEvent`, `openDir`, `openRun`) plus the multi-provider
-  credential methods. The web shell deliberately does not load `gamevolley.js`, and the web
-  UI has no provider panel, so those methods are unreachable there. No shared UI code calls
+  credential methods and the direct Hermes CLI handoff (`hermesStart`, `onHandoffEvent`).
+  The web shell deliberately does not load `gamevolley.js`, and the web UI has no provider
+  panel or local CLI, so those methods are unreachable there. No shared UI code calls
   a method that is missing from the web bridge.
 
 `src/shared/app-core.js` remains a parallel, simpler implementation with an IIFE wrapper:
