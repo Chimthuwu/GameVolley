@@ -29,12 +29,18 @@ class CodexAgent extends CodingAgentBase {
   buildArgs({ prompt, system = '', model = null, useStdin = false }) {
     const args = ['exec', '--full-auto'];
     if (model) args.push('-m', String(model));
-    if (system) args.push('--cd', process.cwd(), '-s', system);
-    // The task prompt is the trailing positional argument — unless it travels via
-    // stdin (Windows shim launches), which `codex exec` also accepts.
-    if (!useStdin) args.push(prompt);
+    // The Codex exec CLI has NO system-prompt flag (the old `-s <system>` was
+    // invalid and made the CLI reject the whole invocation — Q11). The system
+    // text is folded into the task prompt instead. `--cd` was dropped too:
+    // runTask already spawns with cwd = the project directory, so pointing at
+    // process.cwd() was both redundant and wrong.
+    if (!useStdin) args.push(system ? `${system}\n\n${prompt}` : prompt);
     return args;
   }
+
+  // Windows shim launches: the prompt travels via stdin and must carry the
+  // system text (the base concatenates system + prompt when this returns true).
+  stdinNeedsSystem() { return true; }
 }
 
 module.exports = CodexAgent;
