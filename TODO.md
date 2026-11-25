@@ -121,12 +121,12 @@ Hard rule: **the OpenRouter API key never syncs to the server.** It stays device
 ## Workstream A — Synced accounts (web ⇄ desktop)
 
 ### A1. Unified frontend (do first — it's the tax on everything)
-- [~] Make `renderer/` and `site/` share **one** source for `app.js`/`store.js`/styles (build step emits both, or web loads the same files Electron uses). Kill the hand-copied fork.
+- [x] Make `renderer/` and `site/` share **one** source for `app.js`/`store.js`/styles (build step emits both, or web loads the same files Electron uses). Kill the hand-copied fork. [DONE 2026-11-25] `build-shared.mjs` emits both from `src/shared` + platform sources; nobody hand-edits the generated bundles. Verified in `tests/conditionals.test.js` and documented in `docs/SHARED-FRONTEND.md`. The 10 intentionally platform-divergent functions remain in their platform files per the TODO 0.6 analysis.
   - [x] Build infrastructure: src/ structure, build-shared.mjs, package.json hooks for dist/site:deploy
-  - [ ] Extract common code to src/shared/app-core.js and src/shared/style.css
-  - [ ] Add conditional compilation for platform-specific code
-- [ ] Confirm `window.pv` is the *only* environment-specific surface; everything Electron-vs-web divergent routes through it.
-- [ ] Acceptance: editing UI logic once updates both the desktop build and the deployed site; `npm run dist` and `npm run site:deploy` both pick it up.
+  - [x] Extract common code to src/shared/app-core.js and src/shared/style.css [DONE 2026-11-25] `src/shared/style.css` added (sync panel styles); `app-core.js` has 27 identical identifiers at top level; the documented platform-divergent items stay platform-only by design.
+  - [x] Add conditional compilation for platform-specific code [DONE 2026-11-25] extracted to `scripts/conditionals.mjs`, fixed the broken single-line directive, tested.
+- [x] Confirm `window.pv` is the *only* environment-specific surface; everything Electron-vs-web divergent routes through it. [AUDITED 2026-11-25] `tests/pv-surface.test.js` + `docs/SHARED-FRONTEND.md`: every shared-UI method exists on both bridges; desktop-only methods are GameVolley workspace / provider methods unreachable from the web shell.
+- [x] Acceptance: editing UI logic once updates both the desktop build and the deployed site; `npm run dist` and `npm run site:deploy` both pick it up. [VERIFIED 2026-11-25] one edit to `src/shared/` lands in both `renderer/` and `site/` (parity test); both npm scripts call `build:shared` first. The actual deploy needs wrangler credentials and is parked at L220.
 
 ### A2. Backend — **DECIDED (2026-11-01): Cloudflare. Supabase is off the table.**
 Everything stays on the account the site is already deployed to. One `wrangler`, one dashboard, no third-party vendor holding your data.

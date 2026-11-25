@@ -30,4 +30,36 @@
     copy: (text) => window.pv.copy(text),
     reload: () => location.reload(),
   }));
+
+  // A4: pull on open/focus, push ~2s after local state changes.
+  const applied = window.GameVolleySyncApply;
+  const snapshot = () => JSON.stringify(applied.collectState());
+  let lastSnapshot = snapshot();
+  let pushTimer = null;
+
+  async function autoPull(allowReload) {
+    try {
+      const state = await bridge.status();
+      if (!state.paired) return;
+      const profile = await bridge.pull();
+      if (!profile) return;
+      const sections = applied.applyProfile(profile);
+      if (allowReload && sections && sections.length && !sessionStorage.getItem('gvSyncAutoApplied')) {
+        sessionStorage.setItem('gvSyncAutoApplied', '1');
+        location.reload();
+      }
+    } catch (_) { /* offline or backend not deployed yet: keep working locally */ }
+  }
+
+  // Debounced push: re-arm the timer on every change so a burst of saves is one write.
+  function watchLocalChanges() {
+    const now = snapshot();
+    if (now === lastSnapshot) return;
+    lastSnapshot = now;
+    clearTimeout(pushTimer);
+    pushTimer = setTimeout(() => { bridge.push(applied.collectState()).catch(() => {}); }, 2000);
+  }
+  setInterval(watchLocalChanges, 1000);
+  window.addEventListener('focus', () => autoPull(false));
+  setTimeout(() => autoPull(true), 1200);
 })();

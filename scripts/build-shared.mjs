@@ -4,6 +4,7 @@
 
 import fs from 'fs';
 import path from 'path';
+import { processConditionals } from './conditionals.mjs';
 
 const ROOT = path.resolve(process.cwd());
 const SHARED_DIR = path.join(ROOT, 'src', 'shared');
@@ -45,45 +46,6 @@ function writeFile(dir, file, content) {
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(full, content, 'utf8');
   console.log(`  ✓ ${path.relative(ROOT, full)}`);
-}
-
-// Process a file with conditional blocks: // @platform:renderer or // @platform:web
-// Lines between // @if:renderer and // @endif are only included for renderer
-// Lines between // @if:web and // @endif are only included for web
-function processConditionals(content, platform) {
-  const lines = content.split('\n');
-  const out = [];
-  let inBlock = true;
-  let blockPlatform = null;
-
-  for (const line of lines) {
-    const trimmed = line.trim();
-
-    if (trimmed.startsWith('// @if:')) {
-      blockPlatform = trimmed.slice(7).trim();
-      inBlock = (blockPlatform === platform);
-      continue;
-    }
-    if (trimmed === '// @endif') {
-      inBlock = true;
-      blockPlatform = null;
-      continue;
-    }
-    if (trimmed.startsWith('// @platform:')) {
-      // Single-line platform directive: // @platform:renderer console.log('electron only');
-      const p = trimmed.slice(13).trim();
-      if (p === platform) {
-        out.push(line.slice(line.indexOf('// @platform:') + 13 + p.length).trimStart());
-      }
-      continue;
-    }
-
-    if (inBlock) {
-      out.push(line);
-    }
-  }
-
-  return out.join('\n');
 }
 
 function build() {
