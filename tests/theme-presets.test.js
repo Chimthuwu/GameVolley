@@ -13,7 +13,7 @@ const htmlNoScripts = html.replace(/<script[\s\S]*?<\/script>/g, '');
 
 const PRESETS = ['synthwave', 'midnight', 'emerald', 'ember', 'mono', 'light'];
 // The 16 vars a preset must define (mirrors THEME_VARS in src/shared/app-core.js).
-const THEME_VARS = ['--bg', '--bg-glow', '--card', '--titlebar-from', '--panel', '--panel-hi', '--field', '--bg-wash', '--line', '--line-glow', '--neon-cyan', '--neon-magenta', '--neon-green', '--neon-purple', '--txt', '--dim'];
+const THEME_VARS = ['--bg', '--bg-glow', '--card', '--titlebar-from', '--panel', '--panel-hi', '--field', '--bg-wash', '--line', '--line-glow', '--fill', '--fill-hi', '--neon-cyan', '--neon-magenta', '--neon-green', '--neon-purple', '--txt', '--dim'];
 
 // Mirrors the smoke test's pv bridge: `models` must resolve to an array because
 // refreshVisionHints feeds it straight into MODEL_ROWS.

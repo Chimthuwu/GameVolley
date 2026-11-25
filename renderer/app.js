@@ -98,13 +98,14 @@ const readFileAsText = (file) => new Promise((resolve, reject) => { const r = ne
 // files apply these directly and use the hue/sat/contrast sliders as an OFFSET
 // on the chosen preset (identity offsets reproduce the preset verbatim).
 // New presets must define every name in THEME_VARS.
-const THEME_VARS = ['--bg', '--bg-glow', '--card', '--titlebar-from', '--panel', '--panel-hi', '--field', '--bg-wash', '--line', '--line-glow', '--neon-cyan', '--neon-magenta', '--neon-green', '--neon-purple', '--txt', '--dim'];
+const THEME_VARS = ['--bg', '--bg-glow', '--card', '--titlebar-from', '--panel', '--panel-hi', '--field', '--bg-wash', '--line', '--line-glow', '--fill', '--fill-hi', '--neon-cyan', '--neon-magenta', '--neon-green', '--neon-purple', '--txt', '--dim'];
 const THEMES = {
   synthwave: { label: 'Synthwave', scheme: 'dark', vars: {
     '--bg': '#080610', '--bg-glow': '#1a1048', '--card': '#130e28', '--titlebar-from': '#0b071a',
     '--panel': '#180c22', '--panel-hi': '#28104c',
     '--field': 'rgba(8, 6, 16, 0.72)', '--bg-wash': 'rgba(65, 20, 110, 0.28)',
-    '--line': 'rgba(157, 34, 230, 0.22)', '--line-glow': 'rgba(157, 34, 230, 0.65)',
+    '--line': 'rgba(157, 34, 230, 0.22)',    '--line-glow': 'rgba(157, 34, 230, 0.65)',
+    '--fill': 'rgba(255, 255, 255, 0.05)', '--fill-hi': 'rgba(255, 255, 255, 0.13)',
     '--neon-cyan': '#00d4e8', '--neon-magenta': '#e8245c', '--neon-green': '#00e690', '--neon-purple': '#9d22e6',
     '--txt': '#e8e2f0', '--dim': '#9a94b8',
   } },
@@ -112,7 +113,8 @@ const THEMES = {
     '--bg': '#050a16', '--bg-glow': '#0a1c3e', '--card': '#0a1428', '--titlebar-from': '#040911',
     '--panel': '#0a162c', '--panel-hi': '#122a54',
     '--field': 'rgba(5, 10, 22, 0.72)', '--bg-wash': 'rgba(30, 70, 160, 0.26)',
-    '--line': 'rgba(0, 170, 255, 0.24)', '--line-glow': 'rgba(0, 170, 255, 0.6)',
+    '--line': 'rgba(0, 170, 255, 0.24)',    '--line-glow': 'rgba(0, 170, 255, 0.6)',
+    '--fill': 'rgba(255, 255, 255, 0.05)', '--fill-hi': 'rgba(255, 255, 255, 0.13)',
     '--neon-cyan': '#00d4e8', '--neon-magenta': '#4d8dff', '--neon-green': '#2dd4bf', '--neon-purple': '#8b9dff',
     '--txt': '#e2e9f5', '--dim': '#8fa0bd',
   } },
@@ -120,7 +122,8 @@ const THEMES = {
     '--bg': '#040704', '--bg-glow': '#0a1f0e', '--card': '#0a130b', '--titlebar-from': '#020502',
     '--panel': '#081108', '--panel-hi': '#102412',
     '--field': 'rgba(4, 7, 4, 0.75)', '--bg-wash': 'rgba(0, 140, 60, 0.18)',
-    '--line': 'rgba(0, 230, 144, 0.24)', '--line-glow': 'rgba(0, 230, 144, 0.6)',
+    '--line': 'rgba(0, 230, 144, 0.24)',    '--line-glow': 'rgba(0, 230, 144, 0.6)',
+    '--fill': 'rgba(255, 255, 255, 0.05)', '--fill-hi': 'rgba(255, 255, 255, 0.13)',
     '--neon-cyan': '#00e6a8', '--neon-magenta': '#46e08b', '--neon-green': '#00e690', '--neon-purple': '#35d9a0',
     '--txt': '#c9f2d6', '--dim': '#6fa07f',
   } },
@@ -128,7 +131,8 @@ const THEMES = {
     '--bg': '#0f0503', '--bg-glow': '#3b1409', '--card': '#1d0d08', '--titlebar-from': '#0a0402',
     '--panel': '#1a0b06', '--panel-hi': '#35140b',
     '--field': 'rgba(15, 5, 3, 0.72)', '--bg-wash': 'rgba(190, 70, 15, 0.2)',
-    '--line': 'rgba(255, 120, 45, 0.25)', '--line-glow': 'rgba(255, 120, 45, 0.6)',
+    '--line': 'rgba(255, 120, 45, 0.25)',    '--line-glow': 'rgba(255, 120, 45, 0.6)',
+    '--fill': 'rgba(255, 255, 255, 0.05)', '--fill-hi': 'rgba(255, 255, 255, 0.13)',
     '--neon-cyan': '#ffb254', '--neon-magenta': '#ff5f3d', '--neon-green': '#ff9147', '--neon-purple': '#ff6b6b',
     '--txt': '#f4e3d7', '--dim': '#b89e8f',
   } },
@@ -136,7 +140,8 @@ const THEMES = {
     '--bg': '#0a0a0a', '--bg-glow': '#1d1d1d', '--card': '#141414', '--titlebar-from': '#060606',
     '--panel': '#101010', '--panel-hi': '#232323',
     '--field': 'rgba(10, 10, 10, 0.75)', '--bg-wash': 'rgba(255, 255, 255, 0.07)',
-    '--line': 'rgba(255, 255, 255, 0.22)', '--line-glow': 'rgba(255, 255, 255, 0.55)',
+    '--line': 'rgba(255, 255, 255, 0.22)',    '--line-glow': 'rgba(255, 255, 255, 0.55)',
+    '--fill': 'rgba(255, 255, 255, 0.05)', '--fill-hi': 'rgba(255, 255, 255, 0.13)',
     '--neon-cyan': '#ececec', '--neon-magenta': '#b8b8b8', '--neon-green': '#d4d4d4', '--neon-purple': '#a8a8a8',
     '--txt': '#fafafa', '--dim': '#8f8f8f',
   } },
@@ -144,7 +149,8 @@ const THEMES = {
     '--bg': '#f5f3f9', '--bg-glow': '#e9e2f7', '--card': '#ffffff', '--titlebar-from': '#edeaf6',
     '--panel': '#faf8fd', '--panel-hi': '#f0eafb',
     '--field': 'rgba(255, 255, 255, 0.85)', '--bg-wash': 'rgba(157, 34, 230, 0.07)',
-    '--line': 'rgba(110, 70, 190, 0.28)', '--line-glow': 'rgba(110, 70, 190, 0.55)',
+    '--line': 'rgba(110, 70, 190, 0.28)',    '--line-glow': 'rgba(110, 70, 190, 0.55)',
+    '--fill': 'rgba(20, 10, 45, 0.05)', '--fill-hi': 'rgba(20, 10, 45, 0.12)',
     '--neon-cyan': '#007f9e', '--neon-magenta': '#c2185b', '--neon-green': '#00875a', '--neon-purple': '#6a1fc0',
     '--txt': '#241e33', '--dim': '#5e5774',
   } },
