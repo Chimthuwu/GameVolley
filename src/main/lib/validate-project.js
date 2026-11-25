@@ -42,9 +42,11 @@ function runBuild(root, timeoutMs = 120000) {
   });
 }
 
-// Waits for preview readiness + error-level console output. Never hangs: the
-// timeout resolves with whatever we saw.
-function waitForPreview(preview, { timeoutMs = 8000, settleMs = 1500 } = {}) {
+// Waits for preview readiness + error-level console output. Keeps listening for
+// the whole settle window (Q4) so a crash thrown seconds after load — on first
+// spawn or first collision — is still caught. Never hangs: the timeout resolves
+// with whatever we saw. Defaults: settle 5 s after ready, hard timeout 20 s.
+function waitForPreview(preview, { timeoutMs = 20000, settleMs = 5000 } = {}) {
   return new Promise((resolve) => {
     const errors = [];
     let ready = false;
@@ -76,7 +78,7 @@ function waitForPreview(preview, { timeoutMs = 8000, settleMs = 1500 } = {}) {
   });
 }
 
-async function validateProject({ root, preview = null, entryFile = 'index.html', runBuildStep = true, emit = () => {} }) {
+async function validateProject({ root, preview = null, entryFile = 'index.html', runBuildStep = true, emit = () => {}, runtime = {} }) {
   const blocking = [];
   const warnings = [];
   const checks = [];
@@ -121,7 +123,7 @@ async function validateProject({ root, preview = null, entryFile = 'index.html',
   if (preview) {
     emit({ type: 'stage', stage: 'testing' });
     if (preview.reload) { try { preview.reload(); } catch {} }
-    const r = await waitForPreview(preview);
+    const r = await waitForPreview(preview, runtime);
     if (!r.ready) blocking.push('Preview never reported ready');
     r.errors.forEach((e) => blocking.push(`Runtime error: ${e}`));
     checks.push('runtime');

@@ -135,7 +135,7 @@ app.whenReady().then(async () => {
     } else if (k === 'blank') {
       assertKnownBad(r.completed === true, 'blank: black-canvas game still passes validation (Q5 must fail it)');
     } else if (k === 'lateCrash') {
-      assertKnownBad(r.completed === true, 'lateCrash: runtime error 3s after load still missed (Q4 must fail it)');
+      assert(r.completed !== true, 'lateCrash: runtime error 3s after load must fail validation (Q4)');
     }
   }
 
