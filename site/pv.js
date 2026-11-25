@@ -721,7 +721,7 @@ VERDICT: APPROVE if there are no HIGH issues left, otherwise VERDICT: REVISE.`;
       try { localStorage.removeItem(HISTORY_STORAGE); } catch {}
       if (eventListener) eventListener({ type: 'notice', message: 'Local history cleared.' });
     },
-    openUrl: async (u) => { if (/^(https:\/\/|cursor:\/\/|claude:\/\/|vscode:\/\/)/i.test(u)) window.open(u, '_blank', 'noopener'); },
+    openUrl: async (u) => { if (/^(https:\/\/|cursor:\/\/|claude:\/\/|cline:\/\/|vscode:\/\/)/i.test(u)) window.open(u, '_blank', 'noopener'); },
     start: async (cfg) => runStart(cfg),
     sendNotes: async (notes) => { current?.resolveNotes?.(notes); },
     stop: async () => { if (current) { current.ctl.abort(); current.resolveNotes?.(null); } },

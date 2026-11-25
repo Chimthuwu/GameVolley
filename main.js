@@ -1,6 +1,8 @@
 const { app, BrowserWindow, ipcMain, safeStorage, shell, clipboard, dialog } = require('electron');
 const fs = require('fs');
 const path = require('path');
+const { spawn } = require('child_process');
+const { spawnPlan } = require('./lib/win-spawn.js');
 const runsStore = require('./lib/runs-store.js');
 const providerModule = require('./lib/providers.js');
 const pairing = require('./src/shared/pairing.js');
@@ -399,7 +401,34 @@ ipcMain.handle('projects:rename', (_e, from, to) => runsStore.renameProject(runs
 // "Delete" a project by ungrouping its volleys; the volleys themselves are kept.
 ipcMain.handle('projects:delete', (_e, name) => runsStore.deleteProject(runsDir(), name));
 ipcMain.handle('url:open', (_e, u) => {
-  if (typeof u === 'string' && (/^https:\/\//i.test(u) || /^(cursor|claude|vscode):\/\//i.test(u))) shell.openExternal(u);
+  if (typeof u === 'string' && (/^https:\/\//i.test(u) || /^(cursor|claude|cline|vscode):\/\//i.test(u))) shell.openExternal(u);
+});
+// B1: direct Hermes handoff. Spawned detached with argv (never a shell), so no Discord
+// message is involved and no untrusted string is interpreted by a command interpreter.
+ipcMain.handle('handoff:hermes', async (_e, text) => {
+  const body = String(text == null ? '' : text).trim().slice(0, 100000);
+  if (!body) throw new Error('Nothing to send to Hermes.');
+  const binary = process.platform === 'win32' ? 'hermes.cmd' : 'hermes';
+  const plan = spawnPlan(binary, ['chat', '-q', body], { detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
+  let child;
+  try {
+    child = spawn(plan.file, plan.args, plan.options);
+  } catch (e) {
+    throw new Error('Could not start Hermes: ' + (e.message || String(e)));
+  }
+  const emit = (ev) => { if (win && win.webContents) win.webContents.send('handoff:event', ev); };
+  let output = '';
+  const collect = (chunk) => {
+    const text = String(chunk);
+    output = (output + text).slice(-8000); // bounded: long runs must not grow memory
+    emit({ type: 'output', text: text.slice(0, 4000) });
+  };
+  child.stdout.on('data', collect);
+  child.stderr.on('data', collect);
+  child.once('error', (e) => emit({ type: 'error', message: e.message || String(e) }));
+  child.once('close', (code) => emit({ type: 'done', code, output }));
+  child.unref();
+  return { ok: true, message: 'Hermes run started directly — no Discord involved.' };
 });
 // Loads a saved run's final prompt (plus the original idea) so the sidebar history is
 // clickable, not just a list of titles.

@@ -48,4 +48,8 @@ contextBridge.exposeInMainWorld('pv', {
   // Web/desktop sync — pairing secret stays in OS-encrypted storage in the main process.
   syncStatus: inv('sync:status'), syncGenerate: inv('sync:generate'), syncEnter: inv('sync:enter'),
   syncUnpair: inv('sync:unpair'), syncPull: inv('sync:pull'), syncPush: inv('sync:push'),
+
+  // B1: direct handoff. Hermes starts locally; no Discord message is ever sent.
+  hermesStart: inv('handoff:hermes'),
+  onHandoffEvent: (cb) => ipcRenderer.on('handoff:event', (_e, ev) => cb(ev)),
 });
