@@ -41,7 +41,7 @@ function objectKeys(src, marker) {
 
   const desktopOnly = desktop.filter((k) => !web.includes(k));
   const gameVolleyOnly = desktopOnly.filter((k) =>
-    /^(project|checkpoint|openDir|openRun|coding|agent|preview|gameOnEvent|sync|provider|hermes|onHandoff)/.test(k));
+    /^(project|checkpoint|openDir|openRun|coding|agent|preview|gameOnEvent|sync|provider|hermes|onHandoff|scaffold)/.test(k));
   assert.strictEqual(desktopOnly.length, gameVolleyOnly.length,
     'all desktop-only methods are workspace/handoff/sync methods, not shared-UI drift: ' + desktopOnly.join(', '));
 
