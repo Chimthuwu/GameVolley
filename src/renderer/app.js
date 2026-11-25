@@ -54,7 +54,7 @@ function applyTheme({ hue, sat, contrast }) {
   const satF = sat / 100;
   const satOf = (s, l) => {
     const s2 = Math.min(100, Math.max(0, s * satF));
-    const l2 = satF > 1 ? l - (l - 50) * (satF - 1) * 0.35 : l;
+    const l2 = satF > 1 ? l - (l - 50) * (satF - 1) * 0.8 : l;
     return [s2, Math.min(100, Math.max(0, l2))];
   };
   // CONTRAST: classic midpoint-anchored S-curve around 50% lightness. Dark
@@ -71,9 +71,11 @@ function applyTheme({ hue, sat, contrast }) {
     root.setProperty(name, `hsl(${newH.toFixed(0)}, ${newS.toFixed(0)}%, ${newL.toFixed(0)}%)`);
   }
   // Surfaces: hue follows the accents; same sat/contrast treatment.
+  // Surfaces sit at 4-17% lightness where a pivot-at-50% curve is invisible, so scale
+  // lightness multiplicatively (clamped) — the contrast slider visibly lifts/deepens them.
   for (const [name, [h, s, l]] of Object.entries(THEME_SURFACE_HSL)) {
     const newH = ((h + hue) % 360 + 360) % 360;
-    const [newS, newL] = satOf(s, conOf(l));
+    const [newS, newL] = satOf(Math.min(100, s * (1 + (satF - 1) * 0.6)), Math.min(40, l * conF * conF * (satF > 1 ? 1 + (satF - 1) * 0.5 : 1)));
     root.setProperty(name, `hsl(${newH.toFixed(0)}, ${newS.toFixed(0)}%, ${newL.toFixed(0)}%)`);
   }
   // Field fills and the wash behind the full-page Settings view keep their alpha.
@@ -90,6 +92,9 @@ function applyTheme({ hue, sat, contrast }) {
   const [s2, l2] = satOf(ps0, 50);
   root.setProperty('--line', `hsla(${h2.toFixed(0)}, ${s2.toFixed(0)}%, ${l2.toFixed(0)}%, 0.3)`);
   root.setProperty('--line-glow', `hsla(${h2.toFixed(0)}, ${s2.toFixed(0)}%, ${l2.toFixed(0)}%, 0.8)`);
+  // Text: contrast also brightens/dims body and secondary text.
+  root.setProperty('--txt', `hsl(${((270 + hue) % 360 + 360) % 360}, ${Math.round(30 * satF > 100 ? 100 : 30 * satF)}%, ${Math.round(Math.min(98, Math.max(55, 92 + (conF - 1) * 20)))}%)`);
+  root.setProperty('--dim', `hsl(${((248 + hue) % 360 + 360) % 360}, ${Math.round(Math.min(100, 20 * satF))}%, ${Math.round(Math.min(90, Math.max(35, 65 + (conF - 1) * 50)))}%)`);
   // The animated background canvas paints with its own colours — let it re-read them.
   document.dispatchEvent(new Event('vp-theme'));
 }
