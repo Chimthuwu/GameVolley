@@ -136,19 +136,19 @@ Everything stays on the account the site is already deployed to. One `wrangler`,
 - [ ] Add `functions/` to the Pages project so the API and the static site deploy together.
 
 ### A3. Identity — pairing secret (now) — **DECIDED: base64 code, not a word mnemonic**
-- [ ] `generatePairSecret()`: 128-bit random → **URL-safe base64** (e.g. 22 chars, no padding). Chosen over a 12-word mnemonic on 2026-11-01. Entropy is what matters — a short "hash" is guessable and would let anyone read the blob.
+- [x] `generatePairSecret()`: 128-bit random → **URL-safe base64** (e.g. 22 chars, no padding). Chosen over a 12-word mnemonic on 2026-11-01. Entropy is what matters — a short "hash" is guessable and would let anyone read the blob. [DONE 2026-11-25] `src/shared/pairing.js` + `tests/pairing.test.js`.
 - [ ] Because base64 is ugly to type, make it **copy/paste and QR-first**: desktop shows the code in a selectable field + a QR; web has one paste box. Never ask a human to type 22 random characters off a screen.
-- [ ] `derivedKey = PBKDF2/Argon2(secret)` client-side; `blobId = sha256(secret)`.
+- [x] `derivedKey = PBKDF2/Argon2(secret)` client-side; `blobId = sha256(secret)`. [DONE 2026-11-25] `deriveIdentity()` in `src/shared/pairing.js`: PBKDF2-HMAC-SHA256 (210k) → non-extractable AES-GCM CryptoKey; `blobId = sha256(secret)` hex. Tested.
 - [ ] Desktop "Pair" → shows the secret + QR. Web "Have a code?" → enter it. Both derive the same `blobId`, encrypt the same payload, read/write each other's state.
 - [ ] Persist secret locally on pair (desktop: keychain beside `key.bin`; web: `localStorage` — weaker than the keychain, but the **payload is E2E-encrypted**, so the threat is a leaked secret, not a server breach).
 - [ ] Server stores **opaque encrypted blobs** keyed by `blobId` + version + timestamp only.
 - [ ] Acceptance: pair desktop↔web with one code; change a preset on one, reload the other, it's there; unpair clears the local secret (orphaned server blob is fine).
 
 ### A4. Sync protocol
-- [ ] Payload = one JSON "profile": settings, presets, pairs, composer defaults, theme, **run history (metadata + prompts, never attachment contents — matches current privacy stance)**.
+- [x] Payload = one JSON "profile": settings, presets, pairs, composer defaults, theme, **run history (metadata + prompts, never attachment contents — matches current privacy stance)**. [DONE 2026-11-25] `buildProfile()` in `src/shared/sync-profile.js` — section allowlist, no credentials.
 - [ ] `pull()` on open/focus; `push()` debounced ~2 s after change.
-- [ ] **Conflict rule:** last-write-wins **per top-level section** (not whole-blob) so a settings tweak and a new run don't clobber each other; `updatedAt` per section. (CRDT is overkill for two devices.)
-- [ ] Size caps: KV value ≤ 1 MB → big run bodies in **R2**, pointers in KV; trim history to N most-recent.
+- [x] **Conflict rule:** last-write-wins **per top-level section** (not whole-blob) so a settings tweak and a new run don't clobber each other; `updatedAt` per section. (CRDT is overkill for two devices.) [DONE 2026-11-25] `mergeProfiles()` — ties keep local, tested.
+- [x] Size caps: KV value ≤ 1 MB → big run bodies in **R2**, pointers in KV; trim history to N most-recent. [DONE 2026-11-25] `fitsInKv` (900 KiB), `extractLargeBodies`/`restoreLargeBodies`, `trimHistory`; tested.
 - [ ] Rate-limit `/api/sync` per `blobId` (the only "auth").
 
 ### A5. Google login (later — same table)
@@ -257,3 +257,8 @@ momozi1996/momozi-VibeGaming-Skills, majidmanzarpour/threejs-game-skills, sausi-
 **Security requirements carried over:** isolated project workspaces, filesystem access restricted to authorised dirs, no unrestricted shell from AI tool calls, no auto-executing untrusted imported code, execution timeouts/resource limits, no API keys exposed to the AI.
 
 - [ ] Kick off via `/sesh` in Hermes: scaffold the `VibeGame-MCP` repo (structure per spec: `apps/mcp-server`, `apps/local-builder`, `apps/dashboard`, `packages/*`, `library/*`, `sources/*`, `projects/`, `docs/`), set up the MCP server skeleton, resource manifest format, and SQLite index — then begin Phase 1 (import/inspect the first 2-3 candidate repos, basic search).
+
+## Decisions made (review me)
+- 2026-11-25 — "Do the historical Workstream A/B tasks apply to this GameVolley repo?" Chose YES: implement them in-repo as bounded, testable modules plus Cloudflare Pages Functions source, stopping short of deploy/credential steps. CHECKPOINT SHA: `d74918212e9a538f396d96cffbdc876292b8aca3` (pushed). Reason: `ready-tasks.py` reports them READY and the brief forbids deferring big/plan-only work.
+- 2026-11-25 — "How to keep the sync stack verifiable without Cloudflare credentials?" Chose UMD modules in `src/shared/` with Node unit tests, and Pages Functions handlers that accept injectable KV/R2 bindings for tests. Reason: deploy needs auth, but the logic does not.
+
