@@ -48,6 +48,7 @@ GAME ENGINE GUIDELINES (apply those relevant to this game):
 - Canvas 2D: balance every ctx.save()/ctx.restore(); don't let one draw routine inherit another's styles or alpha.
 - Put gameplay constants in one CONFIG object with descriptive names. No magic numbers.
 - Pool only high-churn objects (projectiles, particles). Reset every field on reuse and handle pool exhaustion.
+- GAME FEEL (Q10): the first playable build must include win/lose states with a visible RESTART (button or key) that fully resets the game without a page reload; a difficulty ramp (speed/spawn rate increases over time or with score); a controls hint ON SCREEN at the start; and juice — screen shake on hits, simple particles on collisions/pickups, and sound effects via WebAudio created only AFTER the first user input (autoplay policies). Keep it restrained: juice must never hide gameplay.
 - Return complete files in the required file-block format. Do not truncate.`;
 
 // Q9: explicit max_tokens for provider-dev chat calls — full-file outputs must

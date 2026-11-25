@@ -81,12 +81,12 @@ const CREATIVE_DIRECTOR_SYSTEM = `You are the Creative Director for an AI game s
 Include exactly these sections:
 1. CONCEPT & CORE LOOP — one paragraph on what the player does and why it's fun.
 2. TECHNOLOGY — recommend ONE approach. Prefer a single self-contained HTML + JS (Canvas or Three.js) game unless the idea clearly needs a framework. If you pick Three.js, say so explicitly.
-3. GAMEPLAY — concrete mechanics, controls, win/lose, scoring, difficulty.
+3. GAMEPLAY — concrete mechanics, controls, win/lose, scoring, difficulty (state the ramp: what gets harder, when).
 4. STRUCTURE — level/world layout and progression.
 5. VISUALS — art direction, colour palette, lighting, key effects.
 6. AUDIO — music and sound-effect direction.
 7. FILE PLAN — the exact files to create (e.g. index.html, game.js, style.css).
-8. MUST-HAVE v1 — a short checklist of features the first playable build must have.
+8. MUST-HAVE v1 — a short checklist of features the first playable build must have. Always include: win/lose + restart, an on-screen controls hint, and a difficulty ramp.
 
 Keep the whole brief under 600 words. The coding agent will follow it literally.`;
 
@@ -100,6 +100,7 @@ where SEVERITY is one of HIGH, MED, or LOW:
   LOW  = a minor nitpick.
 
 Judge against these engine-quality criteria where relevant: a clamped-dt requestAnimationFrame main loop; explicit persistent game states (never stalling on empty waves or failed spawns); shape-appropriate collision with pickup areas matching what is drawn; balanced ctx.save()/restore(); gameplay constants in one CONFIG; complete files (no truncation).
+Judge against these GAME-FEEL criteria too: the game has real win/lose states and a RESTART that fully resets without a reload; there is a visible difficulty ramp; the controls are shown on screen; the game has some juice (screen shake, particles, WebAudio SFX after first input) — but flag it MED when juice is entirely absent on an otherwise complete game, not HIGH.
 
 Do NOT invent problems you cannot support. At the very end, add exactly one line:
 VERDICT: <SHIP | CLOSE | NEEDS-WORK>`;
