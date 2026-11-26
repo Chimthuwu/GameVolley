@@ -10,6 +10,18 @@ const ROOT = path.join(__dirname, '..');
 const html = fs.readFileSync(path.join(ROOT, 'renderer', 'index.html'), 'utf8');
 const appJs = fs.readFileSync(path.join(ROOT, 'renderer', 'app.js'), 'utf8');
 const gvJs = fs.readFileSync(path.join(ROOT, 'renderer', 'gamevolley.js'), 'utf8');
+const historyJs = fs.readFileSync(path.join(ROOT, 'renderer', 'gamevolley-history.js'), 'utf8');
+const RUN = {
+  id: '20260101000000-abcdef', startedAt: 1767225600000, endedAt: 1767225660000, status: 'failed', mode: 'create',
+  instruction: 'A hedgehog game <img src=x onerror=alert(1)>', projectName: 'hedgehog', projectPath: '/tmp/gvproj', roles: {},
+  brief: 'THE DIRECTOR BRIEF', result: null, error: 'boom',
+  entries: [
+    { kind: 'output', role: 'director', text: 'THE DIRECTOR BRIEF' },
+    { kind: 'output', role: 'developer', text: 'building files' },
+    { kind: 'finding', severity: 'HIGH', text: 'no jump' },
+  ],
+};
+let parkedBounds = null;
 const htmlNoScripts = html.replace(/<script[\s\S]*?<\/script>/g, '');
 
 let gameEventSink = null; // captured GameVolley event listener
@@ -51,6 +63,9 @@ function makePv() {
       case 'checkpointList': return () => Promise.resolve([]);
       case 'agentStart': return () => Promise.resolve({ ok: true, started: true });
       case 'agentCancel': return () => Promise.resolve({ ok: true });
+      case 'agentHistoryList': return () => Promise.resolve([RUN]);
+      case 'agentHistoryRead': return () => Promise.resolve(RUN);
+      case 'previewSetBounds': return (r) => { parkedBounds = r; return Promise.resolve({ ok: true }); };
       case 'gameOnEvent': return (cb) => { gameEventSink = cb; };
       default: return () => Promise.resolve({ ok: true });
     }
@@ -74,6 +89,7 @@ function makePv() {
   }
 
   try { window.eval(appJs); } catch (e) { errors.push('app.js eval threw: ' + e.message); }
+  try { window.eval(historyJs); } catch (e) { errors.push('gamevolley-history.js eval threw: ' + e.message); }
   try { window.eval(gvJs); } catch (e) { errors.push('gamevolley.js eval threw: ' + e.message); }
 
   await new Promise((r) => setTimeout(r, 400));
@@ -89,6 +105,20 @@ function makePv() {
   assert($('gvReload') && typeof $('gvReload').onclick === 'function', 'Preview Reload is wired');
   assert($('gvFull') && typeof $('gvFull').onclick === 'function', 'Preview Fullscreen is wired');
   assert($('gvOpenFolder') && typeof $('gvOpenFolder').onclick === 'function', 'Open Folder is wired');
+
+  // Build history: opens from the header, shows the saved conversation, closes again.
+  assert($('gvHistoryBtn') && typeof $('gvHistoryBtn').onclick === 'function', 'History button is wired');
+  await $('gvHistoryBtn').onclick();
+  assert(!$('gvHistory').classList.contains('hidden'), 'History screen opens');
+  assert(parkedBounds && parkedBounds.x > window.innerWidth, 'game preview is moved out of the way of the History screen');
+  assert($('gvHistoryList').children.length === 1, 'saved run is listed');
+  const shown = $('gvHistoryView').textContent;
+  assert(shown.includes('A hedgehog game') && shown.includes('building files') && shown.includes('no jump') && shown.includes('boom'), 'run detail shows request, messages, findings and error');
+  assert(shown.split('THE DIRECTOR BRIEF').length === 2, 'Director brief is shown once');
+  assert(!$('gvHistoryView').querySelector('img'), 'saved text is never rendered as HTML');
+  assert(window.GvHistoryUI.transcript(RUN).includes('## What happened'), 'transcript can be copied');
+  $('gvHistoryReuse').onclick();
+  assert($('gvIdea').value === RUN.instruction && $('gvHistory').classList.contains('hidden'), 'Reuse request fills the idea box and closes History');
 
   // View switching.
   $('tabVolley').onclick();

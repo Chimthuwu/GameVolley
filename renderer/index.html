@@ -146,11 +146,12 @@
     <div class="gv-header-actions">
       <button id="gvNew" class="gv-btn">+ New Game</button>
       <button id="gvOpen" class="gv-btn ghost">Open Project</button>
+      <button id="gvHistoryBtn" class="gv-btn" title="Every past Create, Improve and Fix">🕘 History</button>
       <span id="gvProjectName" class="gv-project-name">No project open</span>
     </div>
   </header>
   <aside class="gv-sidebar">
-      <div class="gv-side-label">Projects</div>
+      <div class="gv-side-label">Project files</div>
       <input type="text" id="gvProjectsSearch" class="gv-search" placeholder="Filter files…" aria-label="Filter project files">
       <div id="gvProjects" class="gv-projects"></div>
     <div class="gv-side-label">Build roles</div>
@@ -252,6 +253,26 @@
       <span id="gvStatus" class="gv-status"></span>
     </div>
   </section>
+  <div id="gvHistory" class="gv-history hidden" role="dialog" aria-modal="true" aria-labelledby="gvHistoryTitle">
+    <div class="gv-history-head">
+      <span id="gvHistoryTitle" class="gv-history-title">BUILD HISTORY</span>
+      <input type="search" id="gvHistorySearch" class="gv-activity-search" placeholder="Search requests, projects and messages…" aria-label="Search build history">
+      <button type="button" id="gvHistoryClose" class="gv-btn">✕ Close</button>
+    </div>
+    <div class="gv-history-body">
+      <div id="gvHistoryList" class="gv-history-list"></div>
+      <div class="gv-history-detail">
+        <div id="gvHistoryActions" class="gv-history-actions hidden">
+          <button type="button" id="gvHistoryOpenProject" class="gv-btn">📂 Open project</button>
+          <button type="button" id="gvHistoryReuse" class="gv-btn">↩ Reuse request</button>
+          <button type="button" id="gvHistoryCopy" class="gv-btn">📋 Copy all</button>
+          <button type="button" id="gvHistoryDelete" class="gv-btn danger">Delete</button>
+          <span id="gvHistoryMsg" class="gv-status" role="status"></span>
+        </div>
+        <div id="gvHistoryView" class="gv-history-view"></div>
+      </div>
+    </div>
+  </div>
 </div>
 
 <div id="modal" class="modal hidden"><div class="card">
@@ -385,6 +406,7 @@
 <script src="scaffold.js"></script>
 <script src="scaffold-ui.js"></script>
 <script src="app.js"></script>
+<script src="gamevolley-history.js"></script>
 <script src="gamevolley.js"></script>
 <script src="sync-boot.js"></script>
 <script src="handoff-boot.js"></script>

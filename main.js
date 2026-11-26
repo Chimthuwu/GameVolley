@@ -16,6 +16,7 @@ const scaffoldLib = require('./src/shared/scaffold.js');
 const ProjectManager = require('./src/main/project-manager.js');
 const PreviewManager = require('./src/main/preview-manager.js');
 const AgentManager = require('./src/main/agents/agent-manager.js');
+const runHistory = require('./src/main/run-history.js');
 const CodexAgent = require('./src/main/agents/codex-agent.js');
 const ClaudeCodeAgent = require('./src/main/agents/claude-code-agent.js');
 const GeminiAgent = require('./src/main/agents/gemini-agent.js');
@@ -1031,12 +1032,28 @@ ipcMain.handle('agent:codingStatus', async () => {
   return out;
 });
 
+// Saved build history (every Create / Improve / Fix, across all projects).
+const gameHistoryDir = () => path.join(app.getPath('userData'), 'game-history');
+const liveRunId = () => currentGame?.recorder?.id || null;
+ipcMain.handle('agent:history:list', (_e, query) =>
+  runHistory.listRuns(gameHistoryDir(), { activeId: liveRunId(), query: String(query || '').slice(0, 200) }));
+ipcMain.handle('agent:history:read', (_e, id) => runHistory.readRun(gameHistoryDir(), id, liveRunId()));
+ipcMain.handle('agent:history:delete', (_e, id) => runHistory.deleteRun(gameHistoryDir(), id, liveRunId()));
+
 // Start a build (mode: create | improve | fix). Runs in the background and streams
 // events via the 'gamevolley:event' channel; returns immediately.
 ipcMain.handle('agent:start', async (_e, cfg) => {
   if (currentGame) return { ok: false, message: 'A game build is already running. Stop it first.' };
   const ctl = new AbortController();
-  currentGame = { ctl };
+  const recorder = runHistory.startRun(gameHistoryDir(), {
+    mode: cfg.mode,
+    instruction: cfg.mode === 'fix' ? cfg.report : cfg.idea,
+    projectPath: cfg.projectPath,
+    roles: cfg.roles,
+    maxRounds: cfg.maxRounds,
+  });
+  currentGame = { ctl, recorder };
+  const emit = (ev) => { recorder.record(ev); sendGame(ev); };
   const run = async () => {
     try {
       const method = cfg.mode === 'improve' ? 'improveGame' : cfg.mode === 'fix' ? 'fixGame' : 'createGame';
@@ -1046,15 +1063,16 @@ ipcMain.handle('agent:start', async (_e, cfg) => {
         report: cfg.report,
         roles: cfg.roles || {},
         signal: ctl.signal,
-        onEvent: sendGame,
+        onEvent: emit,
         // IPC boundary validation: clamp maxRounds to a sane, bounded integer.
         // clampRounds caps at MAX_ROUNDS_CAP (5), so keep the pre-clamp in step.
         maxRounds: Math.min(5, Math.max(1, Math.floor(Number(cfg.maxRounds) || 3))),
       });
     } catch (e) {
-      if (e && (e.cancelled || /aborted/i.test(e.message || ''))) sendGame({ type: 'agent:cancelled' });
-      else sendGame({ type: 'error', message: e.message || String(e) });
+      if (e && (e.cancelled || /aborted/i.test(e.message || ''))) emit({ type: 'agent:cancelled' });
+      else emit({ type: 'error', message: e.message || String(e) });
     } finally {
+      recorder.finish();
       currentGame = null;
       sendGame({ type: 'agent:idle' });
     }

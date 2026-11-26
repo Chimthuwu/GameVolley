@@ -56,6 +56,7 @@
   // of the preview area so it overlays exactly. Coordinates are window-relative,
   // which (frameless window, titlebar inside the renderer) equals viewport coords.
   function layoutPreview() {
+    if (window.__gvHistory && window.__gvHistory.isOpen()) return; // preview is parked off-screen
     const el = $('gvPreviewArea');
     if (!el) return;
     const r = el.getBoundingClientRect();
@@ -868,6 +869,7 @@
           $('gvStop').classList.add('hidden');
           $('gvCreate').disabled = false;
           building = false;
+          window.__gvHistory && window.__gvHistory.refresh();
           break;
       }
     }
@@ -898,6 +900,18 @@
           } catch {}
         };
         $('gvOpenFolder').onclick = () => { try { pv.projectOpenFolder(); } catch {} };
+        if (window.GvHistoryUI) {
+          window.__gvHistory = window.GvHistoryUI.create({
+            layoutPreview,
+            isBuilding: () => building,
+            async openProject(dir) {
+              await pv.projectOpen(dir);
+              activeProject = await pv.projectGetActive();
+              setView('game');
+              await onProjectOpened();
+            },
+          });
+        }
         layoutPreview();
       }
 

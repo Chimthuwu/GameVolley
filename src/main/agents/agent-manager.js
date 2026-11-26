@@ -171,6 +171,7 @@ class AgentManager {
       signal,
       onDelta: (d) => this._emit(onEvent, { type: 'agent:output', role: 'director', text: d }),
     });
+    this._emit(onEvent, { type: 'brief', text: res.text });
     this._emit(onEvent, { type: 'agent:status', role: 'director', status: 'done', message: 'Development brief ready.' });
     return res.text;
   }

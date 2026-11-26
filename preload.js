@@ -34,6 +34,9 @@ contextBridge.exposeInMainWorld('pv', {
   codingStatus: inv('agent:codingStatus'),
   agentStart: inv('agent:start'),
   agentCancel: inv('agent:cancel'),
+  agentHistoryList: inv('agent:history:list'),
+  agentHistoryRead: inv('agent:history:read'),
+  agentHistoryDelete: inv('agent:history:delete'),
 
   // Embedded game preview (WebContentsView).
   previewLoad: inv('preview:load'),
