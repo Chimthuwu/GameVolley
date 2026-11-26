@@ -104,6 +104,29 @@ async function resolveWithinRealRoot(realRoot, targetPath) {
   return realTarget;
 }
 
+// What may already be in a folder chosen for a NEW game: version control, our
+// own metadata, and files the operating system drops everywhere.
+const NEW_GAME_IGNORES = new Set(['.git', '.gamevolley', '.ds_store', 'thumbs.db', 'desktop.ini']);
+
+// Returns the first real file under dir, or null. Empty folders don't count (a
+// rolled-back build can leave them behind).
+async function firstFile(dir, prefix = '') {
+  let entries;
+  try { entries = await fs.readdir(dir, { withFileTypes: true }); }
+  catch (e) {
+    if (e.code === 'ENOENT') return null;
+    throw new Error(`Cannot check that folder is empty: ${e.message}`);
+  }
+  for (const e of entries) {
+    if (!prefix && NEW_GAME_IGNORES.has(e.name.toLowerCase())) continue;
+    const rel = prefix ? `${prefix}/${e.name}` : e.name;
+    if (!e.isDirectory()) return rel;
+    const found = await firstFile(path.join(dir, e.name), rel);
+    if (found) return found;
+  }
+  return null;
+}
+
 class ProjectManager {
   constructor(eventSink) {
     this.active = null;
@@ -166,6 +189,12 @@ class ProjectManager {
     async createProject(projectPath, { idea = '', parent = null } = {}) {
       if (this._buildInProgress) throw new Error('Cannot switch projects while a build is in progress.');
       const resolved = path.resolve(projectPath);
+      // A build can move or rewrite anything in its folder, so a new game never
+      // shares one with files that are already there.
+      const existing = await firstFile(resolved);
+      if (existing) {
+        throw new Error(`That folder already has files in it (for example "${existing}"). Create Game needs a new, empty folder. To change a game you already have, use Open Project, then Improve.`);
+      }
       await fs.mkdir(resolved, { recursive: true });
       // Record metadata so the workspace can show the original idea later.
       const metaPath = path.join(resolved, '.gamevolley', 'meta.json');

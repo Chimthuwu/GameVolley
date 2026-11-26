@@ -3,7 +3,7 @@
 // Central path validator for MODEL-PROVIDED relative paths. Everything a model
 // emits as a file path goes through resolveInside() before it is ever written
 // to disk: no absolute paths, no drive letters, no traversal, no reserved
-// folders (.git / node_modules / .gamevolley), no null bytes.
+// folders (.git / node_modules / .gamevolley, at any depth), no null bytes.
 
 const path = require('node:path');
 
@@ -21,9 +21,14 @@ function resolveInside(root, relPath) {
   if (!rel || rel === '..' || rel.startsWith('..' + path.sep) || path.isAbsolute(rel)) {
     throw new Error(`Path escapes project: "${relPath}"`);
   }
-  const firstSeg = rel.split(path.sep)[0];
-  if (RESERVED.has(firstSeg)) {
-    throw new Error(`Path targets reserved folder: "${relPath}"`);
+  // Checked at every depth, and the way Windows reads names: case doesn't matter,
+  // trailing dots and spaces are ignored, "GIT~1" is a short name for ".git", and
+  // ":" opens a hidden data stream.
+  for (const segment of rel.split(path.sep)) {
+    const name = segment.replace(/[. ]+$/, '').toLowerCase();
+    if (RESERVED.has(name) || /^(git|gamevo|node_m)~\d+$/.test(name) || segment.includes(':')) {
+      throw new Error(`Path targets reserved folder: "${relPath}"`);
+    }
   }
   return abs;
 }

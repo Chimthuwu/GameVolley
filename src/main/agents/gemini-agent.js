@@ -27,14 +27,11 @@ class GeminiAgent extends CodingAgentBase {
       // Gemini has no system flag here: system text is merged into the positional prompt.
       const full = system ? `${system}\n\n${prompt}` : prompt;
       args.push('-p', full);
-    } // useStdin: the base class writes prompt (+ system, via stdinNeedsSystem) to stdin.
+    } // useStdin: the base class writes system + prompt to stdin.
     args.push('--yolo');
     if (model) args.push('--model', String(model));
     return args;
   }
-
-  // Gemini merges the system text into the prompt, so the stdin payload must carry it.
-  stdinNeedsSystem() { return true; }
 }
 
 module.exports = GeminiAgent;

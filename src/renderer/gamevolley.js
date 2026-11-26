@@ -588,11 +588,19 @@
       btn.className = 'gv-cp-restore';
       btn.textContent = '↩ Restore';
       btn.onclick = async () => {
+        if (building) { setStatus('Stop the running build before restoring.', 'err'); return; }
+        const question = `Restore "${c.label || c.id}"?\n\nFiles added or changed since then will be taken out of the project and kept in a recovery folder, not deleted. A "before restore" checkpoint is saved so you can switch back.`;
+        if (!window.confirm(question)) return;
         setStatus('Restoring checkpoint…');
-        await pv.checkpointRestore(c.id);
-        setStatus('Restored. Reload preview to see it.');
+        let res;
+        try { res = await pv.checkpointRestore(c.id); }
+        catch (e) { res = { ok: false, message: e.message || String(e) }; }
+        if (!res || !res.ok) { setStatus((res && res.message) || 'Restore failed.', 'err'); return; }
+        addActivity(`↩ ${res.message || 'Restored.'}`, 'ok', 'system');
+        setStatus('Restored. See Agent activity for details.', 'ok');
         await pv.previewReload();
         refreshTree();
+        refreshCheckpoints();
       };
       row.append(label, btn);
       box.appendChild(row);
@@ -741,7 +749,15 @@
     if (!idea) { setStatus('Describe the game you want first.', 'err'); return; }
     const dir = await chooseDir();
     if (!dir) return;
-    await pv.projectCreate(dir, { idea });
+    try {
+      await pv.projectCreate(dir, { idea });
+    } catch (e) {
+      // Electron wraps main-process errors; show the user just the reason.
+      const why = String((e && e.message) || e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '');
+      addActivity(why, 'err', 'system');
+      setStatus(why, 'err');
+      return;
+    }
     activeProject = await pv.projectGetActive();
     await refreshTree();
     $('gvProjectName').textContent = activeProject.name;
@@ -846,6 +862,10 @@
                   addActivity('Preview error: ' + (ev.message || ev.code || 'unknown'), 'err', 'system');
                   setStatus('Preview failed to load.', 'err');
           break;
+        case 'restored':
+          closeLiveLine();
+          addActivity(`↩ ${ev.message || 'Rolled back.'}`, 'warn', 'system');
+          break;
         case 'review:result':
                   addActivity(`  ⚠ [${ev.severity}] ${ev.message}`, ev.severity === 'HIGH' ? 'err' : 'warn', 'critic');
                   break;
@@ -886,8 +906,23 @@
         return { director: '🎬 Director', developer: '🛠 Developer', critic: '🔍 Critic' }[role] || role;
       }
 
+      // Chromium opens a file dropped outside a drop zone in this window. The main
+      // process blocks that navigation; this also shows the "can't drop here" cursor.
+      function refuseStrayFileDrops() {
+        for (const type of ['dragover', 'drop']) {
+          window.addEventListener(type, (e) => {
+            if (e.defaultPrevented || !e.dataTransfer) return; // a real drop zone took it
+            if (!Array.from(e.dataTransfer.types || []).includes('Files')) return;
+            if (e.target && e.target.matches && e.target.matches('input[type="file"]')) return;
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'none';
+          });
+        }
+      }
+
       // ---------- wiring ----------
       function wire() {
+        refuseStrayFileDrops();
         $('tabGame').onclick = () => setView('game');
         $('tabVolley').onclick = () => setView('volley');
         $('gvNew').onclick = startCreate;

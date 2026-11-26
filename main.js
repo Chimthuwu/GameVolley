@@ -2,7 +2,8 @@ const { app, BrowserWindow, ipcMain, safeStorage, shell, clipboard, dialog } = r
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
-const { spawnPlan } = require('./lib/win-spawn.js');
+const { hermesPlan } = require('./lib/hermes-handoff.js');
+const { createWindowGuard } = require('./lib/window-guard.js');
 const runsStore = require('./lib/runs-store.js');
 const providerModule = require('./lib/providers.js');
 const pairing = require('./src/shared/pairing.js');
@@ -17,9 +18,14 @@ const ProjectManager = require('./src/main/project-manager.js');
 const PreviewManager = require('./src/main/preview-manager.js');
 const AgentManager = require('./src/main/agents/agent-manager.js');
 const runHistory = require('./src/main/run-history.js');
+const { describeRestore } = require('./src/main/checkpoint-manager.js');
 const CodexAgent = require('./src/main/agents/codex-agent.js');
 const ClaudeCodeAgent = require('./src/main/agents/claude-code-agent.js');
 const GeminiAgent = require('./src/main/agents/gemini-agent.js');
+
+// Must be set up before any ipcMain.handle() below, so every handler is covered.
+const windowGuard = createWindowGuard(path.join(__dirname, 'renderer', 'index.html'));
+windowGuard.guardIpc(ipcMain);
 
 const API = 'https://openrouter.ai/api/v1';
 const keyFile = () => path.join(app.getPath('userData'), 'key.bin');
@@ -79,8 +85,8 @@ function createWindow() {
     webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false },
   });
   win.setMenuBarVisibility(false);
+  windowGuard.guardWindow(win, shell);
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
-  win.webContents.setWindowOpenHandler(({ url }) => { shell.openExternal(url); return { action: 'deny' }; });
   setupGameVolley();
 }
 
@@ -88,6 +94,8 @@ if (!app.requestSingleInstanceLock()) app.quit();
 app.on('second-instance', () => { if (win) { if (win.isMinimized()) win.restore(); win.focus(); } });
 app.whenReady().then(createWindow);
 app.on('window-all-closed', () => app.quit());
+// Quitting must not leave an agent running (and editing files) in the background.
+app.on('before-quit', () => { currentGame?.ctl.abort(); current?.ctl.abort(); });
 
 // ---- key storage (encrypted with the OS when possible) ----
 let lastKeyError = '';
@@ -426,18 +434,18 @@ ipcMain.handle('projects:delete', (_e, name) => runsStore.deleteProject(runsDir(
 ipcMain.handle('url:open', (_e, u) => {
   if (typeof u === 'string' && (/^https:\/\//i.test(u) || /^(cursor|claude|cline|vscode):\/\//i.test(u))) shell.openExternal(u);
 });
-// B1: direct Hermes handoff. Spawned detached with argv (never a shell), so no Discord
-// message is involved and no untrusted string is interpreted by a command interpreter.
+// B1: direct Hermes handoff, so no Discord message is involved. The prompt is untrusted
+// text: lib/hermes-handoff.js launches the program itself, never through a shell.
 ipcMain.handle('handoff:hermes', async (_e, text) => {
-  const body = String(text == null ? '' : text).trim().slice(0, 100000);
-  if (!body) throw new Error('Nothing to send to Hermes.');
-  const binary = process.platform === 'win32' ? 'hermes.cmd' : 'hermes';
-  const plan = spawnPlan(binary, ['chat', '-q', body], { detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
+  const plan = hermesPlan(text);
   let child;
   try {
     child = spawn(plan.file, plan.args, plan.options);
+    // Report "started" only once it really has.
+    await new Promise((resolve, reject) => { child.once('spawn', resolve); child.once('error', reject); });
   } catch (e) {
-    throw new Error('Could not start Hermes: ' + (e.message || String(e)));
+    const missing = e && e.code === 'ENOENT';
+    throw new Error(missing ? `Could not start Hermes: ${plan.file} was not found on PATH.` : `Could not start Hermes: ${e.message || e}`);
   }
   const emit = (ev) => { if (win && win.webContents) win.webContents.send('handoff:event', ev); };
   let output = '';
@@ -1002,7 +1010,17 @@ ipcMain.handle('checkpoint:list', async () => {
 });
 ipcMain.handle('checkpoint:restore', async (_e, id) => {
   const a = projectManager.getActive();
-  return a ? projectManager.checkpoint().restore(a.path, id) : { ok: false };
+  if (!a) return { ok: false, message: 'No project is open.' };
+  if (currentGame) return { ok: false, message: 'Stop the running build before restoring a checkpoint.' };
+  try {
+    const checkpoints = projectManager.checkpoint();
+    await checkpoints.get(a.path, id); // fail on a bad id before writing anything
+    await checkpoints.create(a.path, 'before restore'); // lets the user switch back from the list
+    const res = await checkpoints.restore(a.path, id);
+    return { ...res, message: describeRestore(res) };
+  } catch (e) {
+    return { ok: false, message: `Restore didn't finish: ${e.message || e}. If some files changed, the "before restore" checkpoint switches them back.` };
+  }
 });
 ipcMain.handle('checkpoint:remove', async (_e, id) => {
   const a = projectManager.getActive();

@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "volleyprompt",
+  "name": "gamevolley",
   "compatibility_date": "2025-01-01",
   "assets": { "directory": "./site" },
   // Sync API bindings — create the KV namespace and R2 bucket, then uncomment and fill in.

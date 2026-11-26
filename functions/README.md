@@ -27,9 +27,10 @@ Add these to `wrangler.jsonc` (see the commented examples there):
 - `SYNC_R2` — R2 bucket. Holds run bodies too large for the 1 MiB KV value cap,
   keyed `<blobId>/<key>`.
 
-The deploy itself is intentionally not performed by unattended runs: it needs
-`npx wrangler login` credentials and is an outward-facing step. Run
-`npm run site:deploy` manually once the bindings exist.
+GameVolley has no deploy script or deploy workflow. The ones it had targeted the
+`volley-prompt` Pages project, which belongs to VolleyPrompt, and would have
+replaced that site and its sync service. If this web build is ever published,
+give it its own Pages project with a different name.
 
 ## Testing
 

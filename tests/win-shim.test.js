@@ -28,7 +28,7 @@ async function makeShimDir() {
   return dir;
 }
 
-test('quoteWinArg preserves argument boundaries and neutralises metacharacters', () => {
+test('quoteWinArg quotes for the receiving program (cmd.exe safety is enforced by spawnPlan)', () => {
   assert.strictEqual(quoteWinArg('plain'), 'plain');
   assert.strictEqual(quoteWinArg(''), '""');
   assert.strictEqual(quoteWinArg('arg with spaces'), '"arg with spaces"');
@@ -48,14 +48,14 @@ test('isWindowsShim detects only .cmd/.bat on Windows', () => {
   try {
     const res = await streamProcess({
       binary: path.join(dir, 'gvfake.cmd'),
-      args: ['--flag', 'value with spaces', 'weird&|<>^chars', 'say "quoted"'],
+      args: ['--flag', 'value with spaces', 'weird&|<>^chars', '(parens) & more'],
       cwd: dir,
       stdinText: 'UNTRUSTED PROMPT TEXT & echo this-should-not-run',
       idleMs: 15000,
     });
     assert.strictEqual(res.exitCode, 0, `shim must launch (got ${JSON.stringify(res)})`);
     const parsed = JSON.parse(res.output);
-    assert.deepEqual(parsed.argv, ['--flag', 'value with spaces', 'weird&|<>^chars', 'say "quoted"'],
+    assert.deepEqual(parsed.argv, ['--flag', 'value with spaces', 'weird&|<>^chars', '(parens) & more'],
       'argument boundaries and metacharacters must survive intact');
     assert.strictEqual(parsed.stdin, 'UNTRUSTED PROMPT TEXT & echo this-should-not-run',
       'the prompt must arrive via stdin, unmodified');

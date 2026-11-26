@@ -7,6 +7,7 @@
 
 const { spawn } = require('node:child_process');
 const { spawnPlan, isWindowsShim } = require('../../../lib/win-spawn.js');
+const { killTree, treeOptions } = require('../../../lib/kill-tree.js');
 
 function streamProcess({
   binary,
@@ -19,12 +20,14 @@ function streamProcess({
   idleMs = 180000,
 } = {}) {
   return new Promise((resolve, reject) => {
+    // Already stopped: never start the program at all.
+    if (signal && signal.aborted) return resolve({ exitCode: null, aborted: true, output: '' });
     let child;
     try {
       // Windows .cmd/.bat shims must go through cmd.exe (see lib/win-spawn.js);
       // everything else spawns directly with array args — never a shell string.
       const plan = spawnPlan(binary, args, { cwd, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
-      child = spawn(plan.file, plan.args, plan.options);
+      child = spawn(plan.file, plan.args, treeOptions(plan.options));
     } catch (e) {
       return reject(new Error(`${binary} failed to start: ${e.message}`));
     }
@@ -37,17 +40,14 @@ function streamProcess({
 
     const arm = () => {
       if (idle) clearTimeout(idle);
-      idle = setTimeout(() => { stalled = true; try { child.kill('SIGTERM'); } catch {} }, idleMs);
+      idle = setTimeout(() => { stalled = true; killTree(child); }, idleMs);
     };
 
     const onAbort = () => {
       aborted = true;
-      try { child.kill('SIGTERM'); } catch {}
+      killTree(child);
     };
-    if (signal) {
-      if (signal.aborted) onAbort();
-      else signal.addEventListener('abort', onAbort, { once: true });
-    }
+    if (signal) signal.addEventListener('abort', onAbort, { once: true });
 
     child.on('error', (e) => {
       clearTimeout(idle);

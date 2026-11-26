@@ -18,9 +18,8 @@ test('buildArgs no longer emits -s or --cd; system text is folded into the promp
   assert.ok(args.includes('--full-auto') && args.includes('-m'), 'core flags kept');
 });
 
-test('stdinNeedsSystem routes the system text through stdin on shim launches', () => {
+test('the stdin route puts no system text on the command line', () => {
   const a = new CodexAgent();
-  assert.equal(a.stdinNeedsSystem(), true);
   const args = a.buildArgs({ prompt: null, system: 'SYS', model: null, useStdin: true });
   assert.ok(!args.includes('-s') && !args.includes('SYS'), 'no system text in argv on the stdin route');
 });

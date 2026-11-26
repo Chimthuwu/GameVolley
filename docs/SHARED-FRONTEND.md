@@ -61,5 +61,5 @@ their platform files until that analysis is resolved properly.
 - `npm test` (including the new conditionals/build-parity and bridge-surface tests): green.
 - `npm run dist` packages the desktop app from the built `renderer/` directory: available,
   not run in an unattended session (it rewrites `dist/` and needs the Windows code-sign toolchain).
-- `npm run site:deploy` needs `wrangler` credentials and is an outward-facing step — parked
+- There is no `site:deploy` script (it targeted VolleyPrompt's Pages project). A deploy would need `wrangler` credentials and is an outward-facing step — parked
   in `TODO.md` and left for the owner.

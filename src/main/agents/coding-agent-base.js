@@ -62,14 +62,11 @@ class CodingAgentBase {
       throw err;
     }
     // On Windows, npm CLIs are .cmd/.bat shims that must launch through cmd.exe.
-    // UNTRUSTED text (the task prompt) then must NEVER travel through a command
-    // string — route it via stdin and keep only flags/models/paths in the args.
+    // Free text (task and system prompt) then must NEVER be an argument — it goes
+    // on stdin, leaving only flags, model ids and paths on the command line.
     const viaStdin = shimCheck(d.binary);
-    const args = this.buildArgs({ prompt: viaStdin ? null : prompt, system, model, useStdin: viaStdin });
-    // Agents that merged system text into the prompt (e.g. gemini) need it in stdin too.
-    const stdinText = viaStdin
-      ? (typeof this.stdinNeedsSystem === 'function' && this.stdinNeedsSystem() && system ? `${system}\n\n${prompt}` : prompt)
-      : null;
+    const args = this.buildArgs({ prompt: viaStdin ? null : prompt, system: viaStdin ? '' : system, model, useStdin: viaStdin });
+    const stdinText = viaStdin ? (system ? `${system}\n\n${prompt}` : prompt) : null;
     let output = '';
     let result;
     try {

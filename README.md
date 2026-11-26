@@ -35,12 +35,12 @@ You don't write technical prompts or coordinate agents by hand. **Follow-up inst
 - **Real local workspace** — projects live on disk; the agent edits actual files you can open in any editor. No prompt text pretending to be code.
 - **Real coding agents** — drives installed CLIs (OpenAI Codex, Claude Code, Google Gemini CLI) in the selected project directory. If a CLI is missing, you get a clear install hint instead of fake progress.
 - **Embedded playable preview** — an isolated Electron `WebContentsView` renders the genuine game; reload and fullscreen are wired.
-- **Checkpoints** — automatic, reversible snapshots (file-copy + hash manifest, stored outside the project) before and between rounds; failed iterations roll back and validation failures feed the next round.
+- **Checkpoints** — automatic snapshots (file-copy + hash manifest, stored outside the project) before and between rounds; failed iterations roll back and validation failures feed the next round. A rollback or Restore never deletes the only copy of anything: newer and changed files are kept in a recovery folder, and the activity log shows where.
 - **Honest status** — a live agent-activity panel shows what each role is doing; a working **Stop** button cancels the active process and aborts outstanding AI requests without losing completed work.
 - **Provider choice** — pick different providers/models for the Creative Director and Critic; pick your installed coding agent for the Developer.
 - **Live theming, images & project folders, encrypted keys** — carried over from VolleyPrompt.
 - **Device sync (Settings → Device sync)** — pair the desktop app with the web app using a 22-character code (copy/paste or QR). Settings, presets, model pairs and volley history merge per section; the profile is encrypted end-to-end and API keys are never synced.
-- **Send to ▸** — hand the finished prompt to Cursor, Claude Code, Cline, VS Code or Hermes. Hermes starts locally as a direct CLI run — no Discord message is involved.
+- **Send to ▸** — hand the finished prompt to Cursor, Claude Code, Cline, VS Code or Hermes. Hermes starts locally as a direct CLI run — no Discord message is involved. On Windows this needs `hermes.exe`, and very long prompts must be pasted in by hand.
 - **Scaffold** — have the Writer emit a file manifest, let the reviewer check it, preview it, then write a ready folder (with `PROMPT.md` and an actionable `todo.md` handoff). Desktop writes to a folder you pick; web uses the File System Access API or downloads a ZIP.
 
 ## Web, sync and handoff
@@ -64,7 +64,9 @@ npm run dist     # build a Windows installer
 ```
 
 3. Open **Settings** and connect a provider for the Creative Director / Critic (OpenRouter, Anthropic, Gemini CLI, or Ollama).
-4. Type an idea, hit **Create Game**.
+4. Type an idea, hit **Create Game**, and choose a new, empty folder. (To change a game you already have, use **Open Project**, then **Improve**.)
+
+> **Know before you run it:** coding agents run without asking for permission (Claude Code `bypassPermissions`, Gemini `--yolo`, Codex `--full-auto`) with your user rights. Only give them ideas, attachments and project folders you trust.
 
 ## Artifacts
 

@@ -28,6 +28,7 @@
 // All loops are BOUNDED and clamped (clampRounds).
 
 const { validateProject } = require('../lib/validate-project.js');
+const { describeRestore } = require('../checkpoint-manager.js');
 
 const DEFAULT_MAX_ROUNDS = 3;
 
@@ -108,6 +109,10 @@ INTENT FIDELITY: also judge whether the build delivers the ambition of the brief
 
 Do NOT invent problems you cannot support. At the very end, add exactly one line:
 VERDICT: <SHIP | CLOSE | NEEDS-WORK>`;
+
+function throwIfStopped(signal) {
+  if (signal && signal.aborted) throw Object.assign(new Error('Build stopped (aborted).'), { cancelled: true });
+}
 
 function parseReview(text) {
   const findings = [];
@@ -302,8 +307,12 @@ class AgentManager {
   _safeRestore(cp, onEvent, buildContext) {
     if (!cp) return Promise.resolve();
     return this.projectManager.checkpoint().restore(buildContext.path, cp.id)
-      .then(() => this._emit(onEvent, { type: 'restored', checkpoint: cp.id, label: cp.label }))
-      .catch(() => {});
+      .then((res) => this._emit(onEvent, {
+        type: 'restored', checkpoint: cp.id, label: cp.label,
+        message: describeRestore({ ...res, label: cp.label }),
+        recoveryDir: res && res.recoveryDir,
+      }))
+      .catch((e) => this._emit(onEvent, { type: 'error', role: 'developer', message: `Rollback didn't finish, so the project may be only partly rolled back. Files are copied to a recovery folder before they are moved or overwritten. Reason: ${e.message}` }));
   }
 
   // Full project code for fix/improve rounds (Q2) and critic review (Q3): the
@@ -349,7 +358,7 @@ class AgentManager {
     // Capture immutable project context for this build.
     const buildContext = this.projectManager.startBuildContext();
     const root = buildContext.path;
-    let lastGood = await this.projectManager.checkpoint().create(root, 'baseline').catch(() => null);
+    let lastGood = null;
     let feedback = null;
     let lastEntry = null;
     let lastValidation = null;
@@ -361,7 +370,12 @@ class AgentManager {
     let round = 0;
 
     try {
+      // No baseline means no way back, so don't let an agent touch the project without one.
+      lastGood = await this.projectManager.checkpoint().create(root, 'baseline').catch((e) => {
+        throw new Error(`Couldn't take a safety snapshot of this folder, so nothing was changed: ${e.message}`);
+      });
       while (round < rounds) {
+        throwIfStopped(signal);
         round++;
         this._emit(onEvent, { type: 'progress', phase: 'develop', round, maxRounds: rounds });
         const fixNote = feedback
@@ -396,6 +410,7 @@ class AgentManager {
         lastEntry = await this._reloadPreview(onEvent, buildContext);
         this._emit(onEvent, { type: 'progress', phase: 'validate', round, maxRounds: rounds });
         const validation = await this._validate({ onEvent, entry: lastEntry, buildContext });
+        throwIfStopped(signal); // validation takes seconds; Stop may have been pressed meanwhile
         lastValidation = validation;
 
         // Snapshot failed attempts so a later wipe can restore the best one (Q1),

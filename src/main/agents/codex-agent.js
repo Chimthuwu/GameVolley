@@ -37,10 +37,6 @@ class CodexAgent extends CodingAgentBase {
     if (!useStdin) args.push(system ? `${system}\n\n${prompt}` : prompt);
     return args;
   }
-
-  // Windows shim launches: the prompt travels via stdin and must carry the
-  // system text (the base concatenates system + prompt when this returns true).
-  stdinNeedsSystem() { return true; }
 }
 
 module.exports = CodexAgent;
