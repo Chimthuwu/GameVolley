@@ -146,6 +146,15 @@ function makePv() {
   assert(typeof sink === 'function', 'gameOnEvent registered a listener');
   try { sink({ type: 'review:result', severity: 'MED', message: 'too dark' }); sink({ type: 'game:done', result: { rounds: 1 } }); } catch (e) { errors.push('event handler threw: ' + e.message); }
 
+  // The end-of-build message must match the outcome.
+  const lastLog = () => $('gvActivity').lastElementChild.textContent;
+  sink({ type: 'game:done', result: { completed: true, rounds: 2, knownIssues: [] } });
+  assert(lastLog().includes('Build complete in 2 round') && $('gvStatus').classList.contains('ok'), 'passing build reports success');
+  sink({ type: 'game:done', result: { completed: false, rounds: 3, reason: 'Did not pass within the round limit', knownIssues: ['no jump'] } });
+  assert(!lastLog().includes('Build complete') && lastLog().includes('didn’t pass after 3 round'), 'failed build is not reported as complete');
+  assert(lastLog().includes('Did not pass within the round limit') && lastLog().includes('no jump'), 'failed build shows the reason and remaining issues');
+  assert($('gvStatus').classList.contains('err') && !$('gvStatus').textContent.startsWith('Done'), 'failed build status line is an error');
+
   console.log('\nGameVolley smoke test: ' + (errors.length ? 'FAILED' : 'PASSED'));
   if (errors.length) { errors.forEach((e) => console.log('  x ' + e)); process.exit(1); }
   process.exit(0);

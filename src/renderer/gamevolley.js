@@ -857,8 +857,16 @@
                   // Reset all agent cards to idle after a brief moment
                   setTimeout(resetAgentCards, 2000);
                   const issues = (r.knownIssues || []).map((m) => '• ' + m).join('\n');
-                  addActivity(`✔ Build complete in ${r.rounds || '?'} round(s).${issues ? '\nRemaining issues:\n' + issues : ''}`, 'ok', 'system');
-                  setStatus('Done — play it above.', 'ok');
+                  const remaining = issues ? '\nRemaining issues:\n' + issues : '';
+                  // A build that runs out of rounds also ends in game:done, with completed: false.
+                  if (r.completed === false) {
+                    const why = r.reason ? `\n${r.reason}` : '';
+                    addActivity(`✖ Build didn’t pass after ${r.rounds || '?'} round(s).${why}${remaining}`, 'err', 'system');
+                    setStatus('Didn’t pass review — see Agent activity.', 'err');
+                  } else {
+                    addActivity(`✔ Build complete in ${r.rounds || '?'} round(s).${remaining}`, 'ok', 'system');
+                    setStatus('Done — play it above.', 'ok');
+                  }
                   break;
                 }
                 case 'error':
