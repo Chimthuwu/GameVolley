@@ -86,5 +86,7 @@ providerModule.init(deps);
   assert.strictEqual(oaiDeltas, 'hello world', 'openai chat accumulates streamed deltas');
   assert.strictEqual(oaiRes.text, 'hello world', 'openai chat returns text');
 
+  assert.ok(providerModule.getProvider('anthropic').extraArgs.includes('--verbose'), 'Claude CLI chat passes --verbose (required with stream-json in print mode)');
+
   console.log('providers.js unit test: PASSED');
 })().catch((e) => { console.error('providers.js unit test FAILED:', e); process.exit(1); });
