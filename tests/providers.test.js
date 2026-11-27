@@ -163,6 +163,15 @@ providerModule.init(deps);
     await assert.rejects(chatOnce({ model: 'z-ai/glm-5.3-flash' }), /isn't an OpenCode Go model/, 'a leftover OpenRouter name is explained');
     assert.strictEqual(seen.length, before, 'and nothing is sent');
 
+    // A reasoning model: its thinking is counted for the log but never joins the reply.
+    const thinkingLine = (text, extra = {}) => 'data: ' + JSON.stringify({ choices: [{ delta: { reasoning_content: text }, ...extra }] });
+    let thought = 0;
+    streamLines = [thinkingLine('hmm, '), thinkingLine('right'), 'data: ' + JSON.stringify({ choices: [{ delta: { content: 'done' } }] })];
+    assert.strictEqual((await chatOnce({ model: 'kimi-k3', onActivity: (a) => { thought += a.thinking; } })).text, 'done');
+    assert.strictEqual(thought, 10, 'counts the reasoning characters');
+    streamLines = [thinkingLine('still thinking', { finish_reason: 'length' })];
+    await assert.rejects(chatOnce({ model: 'kimi-k3' }), /whole reply allowance on thinking/);
+
     streamLines = ['data: ' + JSON.stringify({ error: { message: 'model is busy' } })];
     await assert.rejects(chatOnce({ model: 'kimi-k3' }), /model is busy/, 'an error inside the reply is shown');
   } finally {

@@ -64,6 +64,42 @@ class ProviderDevAgent {
     this.providerId = providerId || 'provider';
     this.id = `prov:${this.providerId}`;
     this.name = `AI (${this.providerId})`;
+    this.waitNoteMs = 20000; // how long the log may stay quiet before it says so
+  }
+
+  // Runs one chat call and, while no reply text is arriving, says what is happening.
+  // Without this a model that thinks for minutes looks exactly like a frozen app.
+  async _chatWatched(request, onEvent) {
+    const startedAt = Date.now();
+    let lastShown = startedAt;
+    let thinking = 0;          // characters of reasoning so far
+    let thinkingNow = false;   // reasoning arrived since the last note
+    let receiving = false;     // anything arrived since the last note
+    let wrote = false;         // reply text has started
+    const timer = setInterval(() => {
+      if (Date.now() - lastShown < this.waitNoteMs) return;
+      lastShown = Date.now();
+      const secs = Math.round((lastShown - startedAt) / 1000);
+      const waited = secs < 60 ? `${secs}s` : `${Math.floor(secs / 60)}m ${secs % 60}s`;
+      let state = wrote ? 'no new reply text for a while' : 'no reply text yet';
+      if (thinkingNow) state = `the model is thinking (${thinking.toLocaleString('en-US')} characters of reasoning so far)`;
+      else if (receiving) state = `the connection is active, but there is ${wrote ? 'no new reply text' : 'no reply text yet'}`;
+      thinkingNow = false;
+      receiving = false;
+      this._emit(onEvent, { type: 'output', agent: this.id, text: `\n⏳ ${waited}: ${state}.\n` });
+    }, Math.max(10, Math.floor(this.waitNoteMs / 4)));
+    try {
+      return await this.provider.chat({
+        ...request,
+        onDelta: (d) => { if (d) { wrote = true; lastShown = Date.now(); } this._emit(onEvent, { type: 'output', agent: this.id, text: d }); },
+        onActivity: (a) => {
+          receiving = true;
+          if (a && a.thinking > 0) { thinking += a.thinking; thinkingNow = true; }
+        },
+      });
+    } finally {
+      clearInterval(timer);
+    }
   }
 
   // Always listed as available; if credentials are missing the chat call fails and
@@ -86,14 +122,13 @@ class ProviderDevAgent {
     this._check(signal);
     this._emit(onEvent, { type: 'stage', stage: 'generating' });
     this._emit(onEvent, { type: 'output', agent: this.id, text: `Asking ${this.providerId} to build the files…` });
-    const call = (system, messages, maxTokens = null) => this.provider.chat({
+    const call = (system, messages, maxTokens = null) => this._chatWatched({
       model: model || null,
       system,
       messages,
       signal,
       maxTokens,
-      onDelta: (d) => this._emit(onEvent, { type: 'output', agent: this.id, text: d }),
-    });
+    }, onEvent);
 
     const root = this.projectManager.active && this.projectManager.active.path;
     if (!root) throw new Error('No active project. Open or create one first.');

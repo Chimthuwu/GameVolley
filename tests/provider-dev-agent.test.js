@@ -23,6 +23,49 @@ test('parseFiles extracts path/content pairs and tolerates CRLF', () => {
   assert.equal(r.files[1].content, 'console.log(1);');
 });
 
+const pause = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Runs a slow stand-in provider and returns what reached the live log.
+async function logOf(chat) {
+  const { active } = await tmp();
+  const agent = new ProviderDevAgent({ provider: { chat }, projectManager: { active }, providerId: 'opencode-go' });
+  agent.waitNoteMs = 60;
+  let log = '';
+  await agent.runTask({ prompt: 'build', onEvent: (e) => { if (e.type === 'output') log += e.text; } });
+  return { log, later: async () => { const before = log; await pause(200); return log === before; } };
+}
+
+test('a quiet wait says so, and the notes stop with the call', async () => {
+  const run = await logOf(async () => { await pause(220); return { text: SAMPLE }; });
+  assert.match(run.log, /no reply text yet/);
+  assert.ok(await run.later(), 'nothing more is posted after the reply');
+});
+
+test('a thinking model is reported as thinking, with how much so far', async () => {
+  const run = await logOf(async ({ onActivity }) => {
+    for (let i = 0; i < 12; i++) { await pause(20); onActivity({ thinking: 100 }); }
+    return { text: SAMPLE };
+  });
+  assert.match(run.log, /the model is thinking \([\d,]+ characters of reasoning so far\)/);
+});
+
+test('data without text is reported as an active connection, not as thinking', async () => {
+  const run = await logOf(async ({ onActivity }) => {
+    for (let i = 0; i < 12; i++) { await pause(20); onActivity({ thinking: 0 }); }
+    return { text: SAMPLE };
+  });
+  assert.match(run.log, /connection is active, but there is no reply text yet/);
+  assert.doesNotMatch(run.log, /thinking/);
+});
+
+test('text that keeps arriving needs no waiting notes', async () => {
+  const run = await logOf(async ({ onDelta }) => {
+    for (let i = 0; i < 12; i++) { await pause(15); onDelta('x'); }
+    return { text: SAMPLE };
+  });
+  assert.doesNotMatch(run.log, /⏳/);
+});
+
 test('runTask writes parsed files into the real project', async () => {
   const outputs = [];
   const { dir, active } = await tmp();
