@@ -87,6 +87,17 @@ providerModule.init(deps);
   assert.strictEqual(oaiRes.text, 'hello world', 'openai chat returns text');
 
   assert.ok(providerModule.getProvider('anthropic').extraArgs.includes('--verbose'), 'Claude CLI chat passes --verbose (required with stream-json in print mode)');
+  assert.ok(providerModule.getProvider('anthropic').extraArgs.includes('--include-partial-messages'), 'Claude CLI chat asks for partial text, so a long reply is never silent');
+
+  // The shape Claude Code really sends: pieces first, then the whole message again.
+  assert.strictEqual(parse({ type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'text_delta', text: 'y' } } }), 'y', 'claude partial piece');
+  assert.strictEqual(parse({ type: 'stream_event', event: { type: 'message_start', message: {} } }), null, 'other stream events carry no text');
+  const partialCli = new CliProvider('partial-cli', 'Fake Claude', { binaries: ['node'], models: [] });
+  partialCli.script = path.join(__dirname, 'fixtures', 'cli-fake-partial.js');
+  let pieces = '';
+  const partialRes = await partialCli.chat({ system: '', messages: [{ role: 'user', content: 'go' }], onDelta: (d) => { pieces += d; } });
+  assert.strictEqual(pieces, 'Hello world', 'each piece reaches the screen once, not again with the whole message');
+  assert.strictEqual(partialRes.text, 'Hello world', 'final text with partial messages');
 
   console.log('providers.js unit test: PASSED');
 })().catch((e) => { console.error('providers.js unit test FAILED:', e); process.exit(1); });
