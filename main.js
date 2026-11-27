@@ -322,8 +322,11 @@ ipcMain.handle('provider:connect', async (_e, id, value) => {
       return { ok: true, installed: true, cli: true, binary: st.binary, models };
     } catch (e) { return { ok: false, installed: true, cli: true, error: e.message || String(e) }; }
   }
-  if (value !== undefined && value !== null) saveProvCred(id, value);
+  // A blank value means "test what's saved". It must never delete the saved key;
+  // clearing a key is done with Save.
+  if (typeof value === 'string' && value.trim()) saveProvCred(id, value);
   try {
+    if (typeof p.verify === 'function') await p.verify();
     const models = await p.getModels();
     return { ok: true, models };
   } catch (e) {

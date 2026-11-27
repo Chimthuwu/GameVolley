@@ -1172,6 +1172,14 @@ function wireProviderSelect(inputId, selId, storeKey) {
   });
 }
 
+function showProviderMsg(id, text) {
+  const card = $('providerList')?.querySelector(`.provider-card[data-card="${id}"]`);
+  if (!card) return;
+  let m = card.querySelector('.provider-msg');
+  if (!m) { m = document.createElement('span'); m.className = 'provider-msg'; card.appendChild(m); }
+  m.textContent = text;
+}
+
 async function renderProviders() {
   const list = $('providerList');
   if (!list) return;
@@ -1183,6 +1191,7 @@ async function renderProviders() {
     const st = statuses[p.id] || {};
     const card = document.createElement('div');
     card.className = 'provider-card';
+    card.dataset.card = p.id;
     const head = document.createElement('div');
     head.className = 'provider-card-head';
     const name = document.createElement('span'); name.className = 'provider-name'; name.textContent = p.name;
@@ -1215,8 +1224,8 @@ async function renderProviders() {
       const msg = document.createElement('span'); msg.className = 'provider-msg'; msg.dataset.prov = p.id;
       saveBtn.onclick = async () => {
         const r = await pv.providerCredsSave(p.id, inp.value.trim());
-        msg.textContent = r.present ? `Saved ${r.masked}` : 'Cleared';
-        renderProviders();
+        await renderProviders();
+        showProviderMsg(p.id, r.present ? `Saved ${r.masked}` : 'Cleared');
       };
       row.append(inp, saveBtn, msg);
       card.appendChild(row);
@@ -1234,12 +1243,13 @@ async function renderProviders() {
     act.textContent = p.authType === 'local' ? 'Check connection' : (p.authType === 'cli' ? 'Check CLI' : 'Test & connect');
     act.onclick = async () => {
       act.disabled = true; act.textContent = 'Checking…';
-      const r = await pv.providerConnect(p.id, '');
+      // A key typed in the box is saved and tested. A blank box tests the saved key.
+      const typed = card.querySelector('.provider-key');
+      const r = await pv.providerConnect(p.id, typed ? typed.value.trim() : '');
       act.disabled = false; act.textContent = p.authType === 'local' ? 'Check connection' : (p.authType === 'cli' ? 'Check CLI' : 'Test & connect');
-      let m = card.querySelector('.provider-msg');
-      if (!m) { m = document.createElement('span'); m.className = 'provider-msg'; card.appendChild(m); }
-      m.textContent = r.ok ? `✓ ${r.cli ? 'CLI found' : 'connected'} · ${r.models.length} models` : '✗ ' + (r.message || r.error || 'failed');
-      renderProviders();
+      // The cards are redrawn first, so the result isn't wiped off the screen.
+      await renderProviders();
+      showProviderMsg(p.id, r.ok ? `✓ ${r.cli ? 'CLI found' : 'connected'} · ${r.models.length} models` : '✗ ' + (r.message || r.error || 'failed'));
     };
     card.appendChild(act);
     list.appendChild(card);

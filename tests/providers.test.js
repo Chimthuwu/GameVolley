@@ -19,7 +19,7 @@ providerModule.init(deps);
 
 (async () => {
   const all = providerModule.getAllProviders();
-  assert.strictEqual(all.length, 5, 'expected 5 providers');
+  assert.strictEqual(all.length, 6, 'expected 6 providers');
 
   const or = providerModule.getProvider('openrouter');
   const orModels = await or.getModels();
@@ -98,6 +98,77 @@ providerModule.init(deps);
   const partialRes = await partialCli.chat({ system: '', messages: [{ role: 'user', content: 'go' }], onDelta: (d) => { pieces += d; } });
   assert.strictEqual(pieces, 'Hello world', 'each piece reaches the screen once, not again with the whole message');
   assert.strictEqual(partialRes.text, 'Hello world', 'final text with partial messages');
+
+  // ---- OpenCode Go, against a stand-in server. The key here is made up. ----
+  const oc = providerModule.getProvider('opencode-go');
+  assert.strictEqual(oc.id, 'opencode-go', 'OpenCode Go is registered, not the openrouter fallback');
+  assert.strictEqual((await oc.getStatus()).connected, false, 'not connected without a key');
+  await assert.rejects(oc.verify(), /No OpenCode Go API key/);
+  await assert.rejects(oc.chat({ model: 'glm-5.3', messages: [] }), /No OpenCode Go API key/);
+
+  const loadBefore = deps.loadProvCred;
+  deps.loadProvCred = (id) => (id === 'opencode-go' ? 'made-up-test-key' : loadBefore(id));
+  const fetchBefore = global.fetch;
+  const seen = [];
+  let usageStatus = 200;
+  let streamLines = [];
+  global.fetch = async (url, opts = {}) => {
+    seen.push({ url: String(url), opts });
+    if (String(url).endsWith('/v1/models')) {
+      const ids = ['beam-free', 'text-embedding-3-small', 'jev-1.14', 'gpt-6-luna-decision', 'glm-5.3-flash', 'kimi-k3'];
+      return { ok: true, status: 200, json: async () => ({ data: ids.map((id) => ({ id })) }) };
+    }
+    if (String(url).endsWith('/v1/usage')) {
+      return { ok: usageStatus === 200, status: usageStatus, text: async () => JSON.stringify({ error: { message: 'stand-in says no' } }) };
+    }
+    const enc = new TextEncoder();
+    return { ok: true, status: 200, body: (async function* () { for (const l of streamLines) yield enc.encode(l + '\n'); })() };
+  };
+  try {
+    const ocModels = await oc.getModels();
+    assert.deepStrictEqual(ocModels.map((m) => m.id), ['beam-free', 'glm-5.3-flash', 'kimi-k3'], 'embedding and decision models are left out');
+    assert.strictEqual(ocModels.find((m) => m.autoDefault).id, 'glm-5.3-flash', 'a blank model box means the default, not the first free model');
+    assert.ok(!seen[0].opts.headers.Authorization, 'the public model list is asked for without the key');
+
+    await oc.verify();
+    assert.strictEqual(seen.at(-1).url, 'https://opencode.ai/inference/go/v1/usage');
+    assert.strictEqual(seen.at(-1).opts.headers.Authorization, 'Bearer made-up-test-key');
+    usageStatus = 401;
+    await assert.rejects(oc.verify(), /rejected the API key \(401\).*stand-in says no/, 'a bad key is reported');
+    usageStatus = 403;
+    await assert.rejects(oc.verify(), /needs a Go subscription/, 'a key without Go is reported');
+
+    streamLines = ['data: ' + JSON.stringify({ choices: [{ delta: { content: 'play ' } }] }), 'data: ' + JSON.stringify({ choices: [{ delta: { content: 'on' } }] }), 'data: [DONE]'];
+    let shown = '';
+    const chatOnce = (extra) => oc.chat({ system: 'role A', messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }], onDelta: (d) => { shown += d; }, ...extra });
+    assert.strictEqual((await chatOnce({ model: 'opencode-go/kimi-k3', maxTokens: 500 })).text, 'play on');
+    assert.strictEqual(shown, 'play on');
+    const sent = seen.at(-1);
+    assert.strictEqual(sent.url, 'https://opencode.ai/inference/go/openai/v1/chat/completions');
+    assert.match(sent.opts.headers['user-agent'], /^GameVolley\/\d/, 'names itself');
+    const body = JSON.parse(sent.opts.body);
+    assert.strictEqual(body.model, 'kimi-k3', 'the opencode-go/ prefix is removed');
+    assert.strictEqual(body.max_tokens, 500);
+    assert.deepStrictEqual(body.messages, [{ role: 'system', content: 'role A' }, { role: 'user', content: 'hi' }]);
+
+    const first = sent.opts.headers['x-opencode-session'];
+    assert.ok(first, 'sends a session id');
+    await chatOnce({ model: null });
+    assert.strictEqual(JSON.parse(seen.at(-1).opts.body).model, 'glm-5.3-flash', 'a blank Developer model still sends one');
+    assert.strictEqual(seen.at(-1).opts.headers['x-opencode-session'], first, 'same role keeps its session');
+    await chatOnce({ model: 'kimi-k3', system: 'role B' });
+    assert.notStrictEqual(seen.at(-1).opts.headers['x-opencode-session'], first, 'another role gets its own session');
+
+    const before = seen.length;
+    await assert.rejects(chatOnce({ model: 'z-ai/glm-5.3-flash' }), /isn't an OpenCode Go model/, 'a leftover OpenRouter name is explained');
+    assert.strictEqual(seen.length, before, 'and nothing is sent');
+
+    streamLines = ['data: ' + JSON.stringify({ error: { message: 'model is busy' } })];
+    await assert.rejects(chatOnce({ model: 'kimi-k3' }), /model is busy/, 'an error inside the reply is shown');
+  } finally {
+    global.fetch = fetchBefore;
+    deps.loadProvCred = loadBefore;
+  }
 
   console.log('providers.js unit test: PASSED');
 })().catch((e) => { console.error('providers.js unit test FAILED:', e); process.exit(1); });

@@ -105,8 +105,10 @@ function makePv() {
     assert(!!act, 'OpenAI connect button present');
     if (act) { act.click(); }
     await new Promise((r) => setTimeout(r, 300));
-    const msg = openaiCard.querySelector('.provider-msg');
-    assert(msg && /connected/i.test(msg.textContent), 'OpenAI connect reported connected (msg: ' + (msg && msg.textContent) + ')');
+    // The cards are redrawn after the check, so look at the card that is on screen now.
+    const onScreen = [...window.document.querySelectorAll('#providerList .provider-card')].find((c) => c.querySelector('.provider-name')?.textContent === 'OpenAI');
+    const msg = onScreen && onScreen.querySelector('.provider-msg');
+    assert(msg && /connected/i.test(msg.textContent),'OpenAI connect reported connected (msg: ' + (msg && msg.textContent) + ')');
   }
 
   console.log('\nProvider UI smoke test: ' + (errors.length ? 'FAILED' : 'PASSED'));

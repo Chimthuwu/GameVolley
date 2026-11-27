@@ -53,8 +53,10 @@ function clampRounds(v) {
 // provider's first listed model only when no free one exists.
 function pickAutoModel(models) {
   if (!Array.isArray(models) || !models.length) return null;
+  // A provider that names its own default wins over the free-first rule.
+  const own = models.find((m) => m && m.autoDefault);
   const free = models.find((m) => m && (m.isFree || (typeof m.id === 'string' && m.id.includes(':free'))));
-  return (free || models[0]).id;
+  return (own || free || models[0]).id;
 }
 
 // Q9: for Director/Critic with no explicit model, prefer a CONNECTED CLI provider
