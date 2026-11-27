@@ -140,6 +140,11 @@
   </main>
 </div>
 
+<div id="gvFullBar" class="gv-full-bar">
+  <span>Fullscreen game preview · press Esc to exit</span>
+  <button type="button" id="gvFullExit" class="gv-btn">✕ Exit fullscreen</button>
+</div>
+
 <div id="gameRoot">
   <header class="gv-header">
     <div class="gv-brand">🎮 GameVolley</div>
@@ -238,6 +243,7 @@
               <option value="system">⚙ System</option>
             </select>
             <input type="search" id="gvActivitySearch" class="gv-activity-search" placeholder="Search activity…" aria-label="Search activity log">
+            <button type="button" id="gvActivityCopy" class="gv-activity-clear gv-activity-copy" title="Copy the activity text shown here" aria-label="Copy activity text">📋 Copy</button>
             <button type="button" id="gvActivityClear" class="gv-activity-clear" title="Clear activity log" aria-label="Clear activity log">✕</button>
           </div>
         </div>

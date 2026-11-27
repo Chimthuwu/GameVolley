@@ -26,6 +26,20 @@ const { execFile } = require('node:child_process');
 // dev-mode security banner (emitted for ANY page without a CSP meta, including
 // every preview we serve — it is environment noise, not a runtime error).
 const NOISE = [/favicon\.ico/i, /electron security warning/i, /insecure content-security-policy/i];
+// The preview's console levels: 2 is a warning, 3 is an error (console.error, an
+// uncaught exception or an unhandled promise rejection). Only errors fail a build.
+const WARNING_LEVEL = 2;
+const ERROR_LEVEL = 3;
+
+// A game that logs inside its main loop repeats one message many times. Each
+// different message is listed once, with how often it happened.
+function collapse(messages, max = 10) {
+  const seen = new Map();
+  for (const m of messages) seen.set(m, (seen.get(m) || 0) + 1);
+  const out = [...seen].map(([m, n]) => (n > 1 ? `${m} (×${n})` : m));
+  return out.length > max ? [...out.slice(0, max), `…and ${out.length - max} more different messages`] : out;
+}
+
 const CHECKLIST = [
   ['game loop', /requestAnimationFrame|setAnimationLoop|setInterval/],
   ['input handling', /addEventListener\(\s*['"](key|pointer|mouse|touch|click)/i],
@@ -49,6 +63,7 @@ function runBuild(root, timeoutMs = 120000) {
 function waitForPreview(preview, { timeoutMs = 20000, settleMs = 5000 } = {}) {
   return new Promise((resolve) => {
     const errors = [];
+    const consoleWarnings = [];
     let ready = false;
     let finished = false;
     const done = () => {
@@ -60,12 +75,14 @@ function waitForPreview(preview, { timeoutMs = 20000, settleMs = 5000 } = {}) {
         preview.off('preview:fail', onFail);
       }
       clearTimeout(timer);
-      resolve({ ready, errors });
+      resolve({ ready, errors, consoleWarnings });
     };
     const onConsole = (m) => {
       const level = typeof m === 'object' ? m.level : m;
       const msg = typeof m === 'object' ? m.message : String(m);
-      if (level >= 2 && !NOISE.some((re) => re.test(msg))) errors.push(msg);
+      if (NOISE.some((re) => re.test(msg))) return;
+      if (level >= ERROR_LEVEL) errors.push(msg);
+      else if (level === WARNING_LEVEL) consoleWarnings.push(msg);
     };
     const onReady = () => { ready = true; setTimeout(done, settleMs); }; // let runtime errors surface
     const onFail = (e) => { errors.push(`Failed to load: ${(e && e.message) || e}`); done(); };
@@ -125,7 +142,10 @@ async function validateProject({ root, preview = null, entryFile = 'index.html',
     if (preview.reload) { try { preview.reload(); } catch {} }
     const r = await waitForPreview(preview, runtime);
     if (!r.ready) blocking.push('Preview never reported ready');
-    r.errors.forEach((e) => blocking.push(`Runtime error: ${e}`));
+    collapse(r.errors).forEach((e) => blocking.push(`Runtime error: ${e}`));
+    const warned = collapse(r.consoleWarnings);
+    warned.forEach((w) => warnings.push(`Console warning: ${w}`));
+    if (warned.length) emit({ type: 'stage', stage: 'testing', detail: `console warnings, not blocking: ${warned.slice(0, 3).join(' · ')}` });
     checks.push('runtime');
     // 4b. Playtest probe (Q5): the canvas must actually change over time and the
     // page must react to input. A frozen/blank canvas is a blocking finding.

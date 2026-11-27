@@ -1117,7 +1117,7 @@ ipcMain.handle('preview:load', async () => {
 });
 ipcMain.handle('preview:reload', () => { previewManager.reload(); return { ok: true }; });
 ipcMain.handle('preview:setBounds', (_e, rect) => { previewManager.setBounds(rect); return { ok: true }; });
-ipcMain.handle('preview:fullscreen', () => { previewManager.fullscreen(); return { ok: true }; });
+ipcMain.handle('preview:fullscreen', (_e, on) => ({ ok: true, full: previewManager.fullscreen(on !== false) }));
 ipcMain.handle('preview:close', () => { previewManager.close(); return { ok: true }; });
 
 // ---- initialise the multi-provider module, wiring it to OpenRouter's existing helpers ----

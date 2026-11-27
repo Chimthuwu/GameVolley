@@ -213,3 +213,45 @@ test('runtime check: error-level console message fails, favicon 404 does not, no
     assert.ok(r.errors.some((e) => /ERR_CONNECTION_REFUSED/.test(e)));
   }
 });
+
+test('build gate: warnings are recorded but do not fail a build; errors still do, once each', async () => {
+  const { validateProject } = require('../src/main/lib/validate-project.js');
+  const dir = await tmp();
+  await fs.writeFile(path.join(dir, 'index.html'), '<canvas></canvas><script src="game.js"></script>');
+  await fs.writeFile(path.join(dir, 'game.js'), 'let score = 0;');
+  // A stand-in preview that loads, then prints the given console messages.
+  const previewThatPrints = (messages) => {
+    const cbs = {};
+    return {
+      on(type, cb) { (cbs[type] = cbs[type] || []).push(cb); },
+      off(type, cb) { cbs[type] = (cbs[type] || []).filter((f) => f !== cb); },
+      reload() {
+        setTimeout(() => {
+          for (const cb of cbs['preview:ready'] || []) cb({});
+          for (const m of messages) for (const f of cbs['preview:console'] || []) f(m);
+        }, 5);
+      },
+    };
+  };
+  const run = (messages) => {
+    const events = [];
+    return validateProject({ root: dir, preview: previewThatPrints(messages), runtime: { timeoutMs: 1000, settleMs: 30 }, emit: (e) => events.push(e) })
+      .then((res) => ({ res, events }));
+  };
+  const warn = { level: 2, message: "THREE.MeshLambertMaterial: 'flatShading' is not a property of this material." };
+  const crash = { level: 3, message: 'Uncaught TypeError: x is not a function' };
+
+  const onlyWarnings = await run(Array(17).fill(warn));
+  assert.deepEqual(onlyWarnings.res.blocking, [], 'warnings alone do not fail the build');
+  assert.equal(onlyWarnings.res.ok, true);
+  assert.deepEqual(onlyWarnings.res.warnings.filter((w) => w.startsWith('Console warning')), [`Console warning: ${warn.message} (×17)`]);
+  assert.ok(onlyWarnings.events.some((e) => /console warnings, not blocking/.test(e.detail || '')), 'the log says so');
+
+  const mixed = await run([warn, crash, crash, crash]);
+  assert.equal(mixed.res.ok, false, 'an error still fails the build');
+  assert.deepEqual(mixed.res.blocking, [`Runtime error: ${crash.message} (×3)`], 'listed once, without the warning');
+
+  const many = await run(Array.from({ length: 14 }, (_, i) => ({ level: 3, message: `error ${i}` })));
+  assert.equal(many.res.blocking.length, 11, 'a flood of different errors is capped');
+  assert.match(many.res.blocking.at(-1), /and 4 more different messages/);
+});

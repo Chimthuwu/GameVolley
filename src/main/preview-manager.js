@@ -73,6 +73,9 @@ function isBlockedPath(relPath) {
   return false;
 }
 
+// Height left free above a fullscreen preview for the app's "Exit fullscreen" bar.
+const FULLSCREEN_BAR = 36;
+
 class PreviewManager {
   constructor({ window = null, onEvent = () => {}, electron = null } = {}) {
     this.window = window;
@@ -80,6 +83,7 @@ class PreviewManager {
     this._electron = electron; // injected for tests; lazily required in production
     this.view = null;
     this.bounds = null;
+    this.full = false; // fullscreen stays on until it is switched off
     this.staticServer = null;
     this.staticPort = null;
     this.devProcess = null;
@@ -151,23 +155,47 @@ class PreviewManager {
       if (level >= 2) this._emit({ type: 'preview:console', level, message });
     });
 
+    // While fullscreen the game has the keyboard, so Esc has to be caught here.
+    wc.on('before-input-event', (e, input) => {
+      if (this.full && input.type === 'keyDown' && input.key === 'Escape') {
+        e.preventDefault();
+        this.fullscreen(false);
+      }
+    });
+
     this.view = view;
-    if (this.bounds) view.setBounds(this.bounds);
+    this._place();
     return view;
   }
 
+  _place() {
+    if (!this.view) return;
+    if (this.full && this.window) {
+      const [w, h] = this.window.getContentSize();
+      this.view.setBounds({ x: 0, y: FULLSCREEN_BAR, width: w, height: Math.max(0, h - FULLSCREEN_BAR) });
+    } else if (this.bounds) {
+      this.view.setBounds(this.bounds);
+    }
+  }
+
+  // Where the preview sits when it isn't fullscreen. The screen keeps sending this as
+  // it lays out; while fullscreen it is only remembered, so it can't end fullscreen.
   setBounds(rect) {
     this.bounds = rect;
     // The renderer positions the preview placeholder before any game is loaded, so
     // make sure the view exists (and is positioned) even on first call.
     this._ensureView();
-    this.view.setBounds(rect);
+    this._place();
   }
 
-  fullscreen() {
-    if (!this.window) return;
-    const [w, h] = this.window.getContentSize();
-    this.setBounds({ x: 0, y: 0, width: w, height: h });
+  fullscreen(on = true) {
+    if (!this.window) return false;
+    this.full = !!on;
+    this._ensureView();
+    this._place();
+    if (this.full && typeof this.view.webContents.focus === 'function') this.view.webContents.focus();
+    this._emit({ type: 'preview:fullscreen', full: this.full });
+    return this.full;
   }
 
   _startStaticServer(rootDir) {
@@ -325,6 +353,7 @@ class PreviewManager {
       } catch {}
       this.view = null;
     }
+    if (this.full) { this.full = false; this._emit({ type: 'preview:fullscreen', full: false }); }
   }
 }
 

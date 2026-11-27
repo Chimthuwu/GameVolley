@@ -37,10 +37,52 @@ test('setBounds stores and applies to the view', () => {
   assert.deepStrictEqual(pm.view.webContents.bounds, { x: 10, y: 20, width: 100, height: 50 });
 });
 
-test('fullscreen fills the window content area', () => {
+const FULL = { x: 0, y: 36, width: 1200, height: 764 }; // the 36px strip holds the Exit bar
+const SMALL = { x: 300, y: 150, width: 800, height: 200 };
+
+test('fullscreen fills the window below the exit bar', () => {
   const pm = new PreviewManager({ window: fakeWin, onEvent: () => {}, electron: fakeElectron });
-  pm.fullscreen();
-  assert.deepStrictEqual(pm.view.webContents.bounds, { x: 0, y: 0, width: 1200, height: 800 });
+  assert.strictEqual(pm.fullscreen(), true);
+  assert.deepStrictEqual(pm.view.webContents.bounds, FULL);
+});
+
+test('layout updates from the screen do not end fullscreen', () => {
+  const events = [];
+  const pm = new PreviewManager({ window: fakeWin, onEvent: (e) => events.push(e), electron: fakeElectron });
+  pm.setBounds(SMALL);
+  pm.fullscreen(true);
+  pm.setBounds(SMALL); // the screen re-lays out: after the click, on resize, on preview load
+  assert.deepStrictEqual(pm.view.webContents.bounds, FULL, 'still fullscreen');
+  pm.setBounds({ ...SMALL, height: 220 });
+  assert.strictEqual(pm.fullscreen(false), false);
+  assert.deepStrictEqual(pm.view.webContents.bounds, { ...SMALL, height: 220 }, 'goes back to the latest place');
+  assert.deepStrictEqual(events.filter((e) => e.type === 'preview:fullscreen').map((e) => e.full), [true, false]);
+});
+
+test('Esc inside the game leaves fullscreen, and only then is Esc taken from the game', () => {
+  const pm = new PreviewManager({ window: fakeWin, onEvent: () => {}, electron: fakeElectron });
+  pm.setBounds(SMALL);
+  const press = (key) => {
+    let taken = false;
+    for (const cb of pm.view.webContents.events['before-input-event']) cb({ preventDefault: () => { taken = true; } }, { type: 'keyDown', key });
+    return taken;
+  };
+  assert.strictEqual(press('Escape'), false, 'the game keeps Esc outside fullscreen');
+  pm.fullscreen(true);
+  assert.strictEqual(press('w'), false, 'other keys reach the game');
+  assert.strictEqual(pm.full, true);
+  assert.strictEqual(press('Escape'), true);
+  assert.strictEqual(pm.full, false);
+  assert.deepStrictEqual(pm.view.webContents.bounds, SMALL);
+});
+
+test('closing the preview ends fullscreen', async () => {
+  const events = [];
+  const pm = new PreviewManager({ window: fakeWin, onEvent: (e) => events.push(e), electron: fakeElectron });
+  pm.fullscreen(true);
+  await pm.close();
+  assert.strictEqual(pm.full, false);
+  assert.strictEqual(events.at(-1).full, false);
 });
 
 test('loadProject serves a file entry over http and reload closes cleanly', async () => {

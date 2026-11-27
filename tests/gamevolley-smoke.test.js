@@ -25,6 +25,7 @@ let parkedBounds = null;
 const htmlNoScripts = html.replace(/<script[\s\S]*?<\/script>/g, '');
 
 let gameEventSink = null; // captured GameVolley event listener
+let copied = null; // what the app last put on the clipboard
 
 // Provider set reflects the REAL ids (gemini is canonical, not 'google').
 const PROVIDERS = [
@@ -38,6 +39,8 @@ const PROVIDERS = [
 function makePv() {
   const handler = (name) => {
     switch (name) {
+      case 'copy': return (t) => { copied = t; return Promise.resolve(true); };
+      case 'previewFullscreen': return (on) => Promise.resolve({ ok: true, full: !!on });
       case 'hasKey': return () => Promise.resolve(false);
       case 'keyState': return () => Promise.resolve({ configured: false });
       case 'models': return () => Promise.resolve([{ id: 'openai/gpt-4o', perM: 0, isFree: true, vision: true }]);
@@ -154,6 +157,58 @@ function makePv() {
   assert(!lastLog().includes('Build complete') && lastLog().includes('didn’t pass after 3 round'), 'failed build is not reported as complete');
   assert(lastLog().includes('Did not pass within the round limit') && lastLog().includes('no jump'), 'failed build shows the reason and remaining issues');
   assert($('gvStatus').classList.contains('err') && !$('gvStatus').textContent.startsWith('Done'), 'failed build status line is an error');
+
+  // A long reply: the screen follows the newest text (it once filled with dots instead).
+  $('gvActivityClear').click();
+  let sent = '';
+  for (let i = 0; i < 700; i++) { const piece = `line ${i};\n`; sent += piece; sink({ type: 'agent:output', role: 'developer', text: piece }); }
+  const live = $('gvActivity').lastElementChild;
+  const onScreen = live.lastChild.textContent;
+  assert(sent.length > 6000 && onScreen.endsWith('line 699;\n'), 'newest text of a long reply stays on screen');
+  assert(onScreen === '…' + sent.slice(-4000), 'older text leaves the screen behind a single "…"');
+
+  // Copy: the whole reply, not only what fits on screen, and only what the filter shows.
+  sink({ type: 'stage', stage: 'parsing' });
+  const copyBtn = $('gvActivityCopy');
+  assert(!!copyBtn, 'Agent activity has a Copy button');
+  const press = async () => { copied = null; copyBtn.click(); await new Promise((r) => setTimeout(r, 30)); return copied; };
+  const all = await press();
+  assert(typeof all === 'string' && all.includes(': ' + sent) && all.includes('— parsing'), 'Copy takes the full reply and the other lines');
+  assert(copyBtn.textContent === 'Copied ✓', 'Copy says it worked');
+  const filter = $('gvActivityRoleFilter');
+  filter.value = 'system'; filter.dispatchEvent(new window.Event('change'));
+  const filtered = await press();
+  assert(filtered.includes('— parsing') && !filtered.includes('line 699;'), 'Copy follows the role filter');
+  filter.value = ''; filter.dispatchEvent(new window.Event('change'));
+  $('gvActivityClear').click();
+  assert((await press()) === null && copyBtn.textContent === 'Nothing to copy', 'an empty log copies nothing and says so');
+
+  // Fullscreen preview: the button turns it on, the bar and Esc turn it off.
+  const tick = () => new Promise((r) => setTimeout(r, 30));
+  const isFull = () => window.document.body.classList.contains('gv-preview-full');
+  $('gvFull').click(); await tick();
+  await new Promise((r) => setTimeout(r, 400));
+  assert(isFull() && $('gvFull').classList.contains('active'), 'fullscreen stays on after the click');
+  $('gvFullExit').click(); await tick();
+  assert(!isFull(), 'Exit fullscreen button leaves it');
+  $('gvFull').click(); await tick();
+  window.document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape' })); await tick();
+  assert(!isFull(), 'Esc leaves fullscreen');
+  sink({ type: 'preview:fullscreen', full: true }); sink({ type: 'preview:fullscreen', full: false });
+  assert(!isFull(), 'Esc pressed inside the game is reflected on screen');
+
+  // ☰ on the GameVolley tab opens the saved builds (it used to do nothing there).
+  $('tabGame').onclick();
+  $('btnSidebarToggle').click(); await new Promise((r) => setTimeout(r, 100));
+  assert(!$('gvHistory').classList.contains('hidden') && $('gvHistoryList').children.length === 1, '☰ opens Build History on the GameVolley tab');
+  $('btnSidebarToggle').click(); await tick();
+  assert($('gvHistory').classList.contains('hidden'), '☰ closes it again');
+  let reached = 0;
+  const before = $('btnSidebarToggle').onclick;
+  $('btnSidebarToggle').onclick = () => { reached++; };
+  $('tabVolley').onclick(); $('btnSidebarToggle').click();
+  assert(reached === 1 && $('gvHistory').classList.contains('hidden'), '☰ still works the sidebar on the VolleyPrompt tab');
+  $('btnSidebarToggle').onclick = before;
 
   console.log('\nGameVolley smoke test: ' + (errors.length ? 'FAILED' : 'PASSED'));
   if (errors.length) { errors.forEach((e) => console.log('  x ' + e)); process.exit(1); }

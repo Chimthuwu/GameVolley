@@ -13,28 +13,21 @@
   let activeProject = null;     // { name, path }
   let building = false;
   let eventSink = null;          // registered gameOnEvent callback
-  let isFullscreen = false;      // Track fullscreen state for persistence
+  let isFullscreen = false;      // mirrors the main process, which owns the preview
 
-  // ---------- fullscreen persistence ----------
-  function getFullscreenState() {
-    try { return JSON.parse(localStorage.getItem('gv:fullscreen') || '{}'); } catch { return {}; }
+  // ---------- fullscreen preview ----------
+  // The preview is a native view drawn over the page, so the page keeps a bar above
+  // it with the way out.
+  function showFullscreen(on) {
+    const was = isFullscreen;
+    isFullscreen = !!on;
+    const btn = $('gvFull'); if (btn) btn.classList.toggle('active', isFullscreen);
+    body.classList.toggle('gv-preview-full', isFullscreen);
+    if (was && !isFullscreen) layoutPreview(); // put the preview back in its place
   }
-  function saveFullscreenState(state) {
-    try { localStorage.setItem('gv:fullscreen', JSON.stringify(state)); } catch {}
-  }
-  function applyPersistedFullscreen() {
-    const state = getFullscreenState();
-    isFullscreen = !!state.enabled;
-    // If we have a project open and fullscreen was enabled, re-enter fullscreen.
-    if (isFullscreen && activeProject) {
-      // Defer until layout is ready.
-      requestAnimationFrame(() => {
-        try { pv.previewFullscreen(); } catch {}
-        // Update button state if it exists.
-        const btn = $('gvFull');
-        if (btn) btn.classList.add('active');
-      });
-    }
+  async function setFullscreen(on) {
+    try { const res = await pv.previewFullscreen(on); showFullscreen(res && res.full); }
+    catch { /* the preview stays as it is */ }
   }
 
   // ---------- view switching ----------
@@ -48,6 +41,8 @@
     const g = $('tabGame'), t = $('tabVolley');
     if (g) g.classList.toggle('tab-active', v === 'game');
     if (t) t.classList.toggle('tab-active', v === 'volley');
+    const menu = $('btnSidebarToggle');
+    if (menu) menu.title = v === 'game' ? 'Build history' : 'Toggle sidebar';
     if (v === 'game') requestAnimationFrame(layoutPreview);
   }
 
@@ -73,7 +68,8 @@
     // the panel into unreadable confetti.
     let liveLine = null;
     let liveRole = null;
-    const LIVE_MAX = 4000;
+    const LIVE_MAX = 4000; // characters of a live line shown on screen
+    const COPY_MAX = 200000; // characters of a live line kept for the Copy button
     const LOG_MAX_LINES = 500; // Bounded log size
 
     // Filter state
@@ -139,6 +135,33 @@
       log.scrollTop = log.scrollHeight;
     }
 
+    // The screen shows the newest part of a long reply, with one "…" in front when
+    // earlier text is out of view. The fuller text is kept for the Copy button.
+    function showLiveText(line, more) {
+      line.fullText += more || '';
+      if (line.fullText.length > COPY_MAX) {
+        line.fullText = line.fullText.slice(-COPY_MAX);
+        line.leftOut = true;
+      }
+      const full = line.fullText;
+      line.lastChild.textContent = full.length > LIVE_MAX ? '…' + full.slice(-LIVE_MAX) : full;
+    }
+
+    // What Copy puts on the clipboard: every line that passes the current filters.
+    function activityText() {
+      const log = $('gvActivity');
+      if (!log) return '';
+      const out = [];
+      for (const line of log.children) {
+        if (!line.classList.contains('gv-log-line') || line.classList.contains('hidden-by-filter')) continue;
+        if (line.classList.contains('gv-stream')) {
+          const note = line.leftOut ? '[earlier text left out]\n' : '';
+          out.push(line.firstChild.textContent + note + line.fullText);
+        } else out.push(line.textContent);
+      }
+      return out.join('\n');
+    }
+
     function appendStreamDelta(role, text) {
       const log = $('gvActivity');
       if (!log) return;
@@ -152,16 +175,16 @@
         tag.className = 'gv-stream-tag';
         tag.textContent = `${roleLabel(role)}: `;
         const body = document.createElement('span');
-        body.textContent = text;
+        liveLine.fullText = '';
+        liveLine.leftOut = false;
         liveLine.appendChild(tag);
         liveLine.appendChild(body);
+        showLiveText(liveLine, text);
         log.appendChild(liveLine);
         // Apply current filters
         if (!matchesFilters(liveLine)) liveLine.classList.add('hidden-by-filter');
       } else {
-        let body = liveLine.lastChild;
-        if (body.textContent.length > LIVE_MAX) body.textContent = body.textContent.slice(-LIVE_MAX) + '…';
-        else body.textContent += text;
+        showLiveText(liveLine, text);
       }
       // Scroll ONLY the log container. scrollIntoView() would also scroll
       // documentElement (see the vanished-titlebar bug) — never use it here.
@@ -191,6 +214,22 @@
         searchInput.addEventListener('input', () => {
           activitySearchQuery = searchInput.value.toLowerCase();
           applyFilters();
+        });
+      }
+      const copyBtn = $('gvActivityCopy');
+      if (copyBtn) {
+        const label = copyBtn.textContent;
+        let back = null;
+        copyBtn.addEventListener('click', async () => {
+          const text = activityText();
+          let said = 'Nothing to copy';
+          if (text) {
+            try { await pv.copy(text); said = 'Copied ✓'; }
+            catch { said = 'Copy failed'; }
+          }
+          copyBtn.textContent = said;
+          clearTimeout(back);
+          back = setTimeout(() => { copyBtn.textContent = label; }, 1500);
         });
       }
       if (clearBtn) {
@@ -849,6 +888,9 @@
                 // Update changes & diff panel
                 addChange(ev.path, ev.operation, ev.diff);
                 break;
+        case 'preview:fullscreen':
+          showFullscreen(ev.full);
+          break;
         case 'preview:load':
                   $('gvPreviewEmpty') && $('gvPreviewEmpty').classList.add('hidden');
                   addActivity('Preview loading…', 'ok', 'system');
@@ -932,16 +974,10 @@
         $('gvFix').onclick = startFix;
         $('gvStop').onclick = stopBuild;
         $('gvReload').onclick = () => { try { pv.previewReload(); } catch {} };
-        $('gvFull').onclick = () => {
-          try {
-            pv.previewFullscreen();
-            isFullscreen = !isFullscreen;
-            saveFullscreenState({ enabled: isFullscreen });
-            $('gvFull').classList.toggle('active', isFullscreen);
-            // Re-layout after fullscreen transition.
-            setTimeout(layoutPreview, 300);
-          } catch {}
-        };
+        $('gvFull').onclick = () => setFullscreen(!isFullscreen);
+        const fullExit = $('gvFullExit');
+        if (fullExit) fullExit.onclick = () => setFullscreen(false);
+        document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && isFullscreen) setFullscreen(false); });
         $('gvOpenFolder').onclick = () => { try { pv.projectOpenFolder(); } catch {} };
         if (window.GvHistoryUI) {
           window.__gvHistory = window.GvHistoryUI.create({
@@ -973,9 +1009,21 @@
                 activeProject = await pv.projectGetActive();
                 if (activeProject) onProjectOpened();
               } catch {}
-              // Restore fullscreen state if it was enabled.
-              applyPersistedFullscreen();
+              wireMenuButton();
             }
+
+    // ☰ opens the saved volleys on the VolleyPrompt tab. That sidebar is hidden on the
+    // GameVolley tab, where the button did nothing, so here it opens the build history.
+    function wireMenuButton() {
+      const menu = $('btnSidebarToggle');
+      if (!menu) return;
+      menu.addEventListener('click', (e) => {
+        const history = window.__gvHistory;
+        if (!body.classList.contains('view-game') || !history || !history.show) return;
+        e.stopImmediatePropagation(); // don't also fold the hidden sidebar
+        if (history.isOpen()) history.hide(); else history.show();
+      }, true);
+    }
 
       if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
       else boot();
