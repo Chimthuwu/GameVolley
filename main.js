@@ -16,6 +16,7 @@ const scaffoldLib = require('./src/shared/scaffold.js');
 // multi-role coding-agent orchestration that turns an idea into a playable game.
 const ProjectManager = require('./src/main/project-manager.js');
 const PreviewManager = require('./src/main/preview-manager.js');
+const { ProjectScripts } = require('./src/main/lib/project-scripts.js');
 const AgentManager = require('./src/main/agents/agent-manager.js');
 const runHistory = require('./src/main/run-history.js');
 const { describeRestore } = require('./src/main/checkpoint-manager.js');
@@ -95,7 +96,7 @@ app.on('second-instance', () => { if (win) { if (win.isMinimized()) win.restore(
 app.whenReady().then(createWindow);
 app.on('window-all-closed', () => app.quit());
 // Quitting must not leave an agent running (and editing files) in the background.
-app.on('before-quit', () => { currentGame?.ctl.abort(); current?.ctl.abort(); });
+app.on('before-quit', () => { currentGame?.ctl.abort(); current?.ctl.abort(); projectScripts?.stop(); });
 
 // ---- key storage (encrypted with the OS when possible) ----
 let lastKeyError = '';
@@ -965,9 +966,27 @@ ipcMain.handle('run:models', (_e, next) => {
 ipcMain.handle('run:stop', () => { if (current) { current.ctl.abort(); current.resolveNotes?.(null); } });
 
 // ---- GameVolley: project workspace, preview, and coding-agent orchestration ----
-let projectManager, previewManager, agentManager, gameAgents;
+let projectManager, previewManager, agentManager, gameAgents, projectScripts;
 let currentGame = null;
 function sendGame(ev) { if (win && !win.isDestroyed()) win.webContents.send('gamevolley:event', ev); }
+// Nothing from a game project runs through npm until this box is answered "yes".
+// "Don't run" is the default, also for Esc and Enter.
+async function askToRunScripts(info) {
+  const detail = [
+    `Folder: ${info.root}`,
+    info.needsInstall ? `\nGameVolley will download these npm packages (their install scripts stay off):\n${info.packages.join('\n') || '  (none listed)'}` : '',
+    `\nIt will run these commands from package.json:\n${info.scripts.join('\n') || '  (none)'}`,
+    info.hasNpmrc ? '\nThis project has an .npmrc file, which can change where packages come from.' : '',
+    '\nThese commands run code from this project, including files an AI wrote, with the same access to this PC as you. Only allow projects you trust. Your answer lasts until you close GameVolley, and you are asked again if package.json or the bundler setup changes.',
+  ].filter(Boolean).join('\n');
+  const { response } = await dialog.showMessageBox(win, {
+    type: 'warning', title: 'Run this game’s npm commands?',
+    message: 'This game needs npm to run. Allow it?',
+    detail, buttons: ['Don’t run', 'Allow for this project'], defaultId: 0, cancelId: 0, noLink: true,
+  });
+  return response === 1;
+}
+
 function setupGameVolley() {
   if (projectManager) return; // idempotent across secondary window lifecycle
   projectManager = new ProjectManager((ev) => sendGame(ev));
@@ -975,7 +994,8 @@ function setupGameVolley() {
   try {
     projectManager.checkpoints.setSnapshotRoot(path.join(app.getPath('userData'), 'checkpoints'));
   } catch {}
-  previewManager = new PreviewManager({ window: win, onEvent: (ev) => sendGame(ev) });
+  projectScripts = new ProjectScripts({ approve: askToRunScripts, onEvent: (ev) => sendGame(ev) });
+  previewManager = new PreviewManager({ window: win, onEvent: (ev) => sendGame(ev), scripts: projectScripts });
   gameAgents = { codex: new CodexAgent(), claude: new ClaudeCodeAgent(), gemini: new GeminiAgent() };
   agentManager = new AgentManager({
     providers: providerModule,
@@ -1102,7 +1122,7 @@ ipcMain.handle('agent:start', async (_e, cfg) => {
   return { ok: true, started: true };
 });
 ipcMain.handle('agent:cancel', () => {
-  if (currentGame) { currentGame.ctl.abort(); return { ok: true }; }
+  if (currentGame) { currentGame.ctl.abort(); projectScripts.stopRunning(); return { ok: true }; }
   return { ok: false, message: 'No build is running.' };
 });
 
@@ -1112,10 +1132,20 @@ ipcMain.handle('preview:load', async () => {
   if (!a) return { ok: false, message: 'No active project.' };
   const entry = await projectManager.detectEntryPoint();
   if (!entry) return { ok: false, message: 'No playable entry point found in the project.' };
+  projectScripts.forgetRefusals(); // opening a game is a fresh chance to say yes
   await previewManager.loadProject({ projectPath: a.path, entry });
+  if (previewManager.unavailable) return { ok: false, message: previewManager.unavailable };
   return { ok: true, entry };
 });
-ipcMain.handle('preview:reload', () => { previewManager.reload(); return { ok: true }; });
+ipcMain.handle('preview:reload', async () => {
+  const a = projectManager.getActive();
+  if (!previewManager.unavailable || !a) { previewManager.reload(); return { ok: true }; }
+  // The game couldn't be shown last time: try again, asking again if it was refused.
+  projectScripts.forgetRefusals();
+  const entry = await projectManager.detectEntryPoint();
+  if (entry) await previewManager.loadProject({ projectPath: a.path, entry });
+  return { ok: !previewManager.unavailable };
+});
 ipcMain.handle('preview:setBounds', (_e, rect) => { previewManager.setBounds(rect); return { ok: true }; });
 ipcMain.handle('preview:fullscreen', (_e, on) => ({ ok: true, full: previewManager.fullscreen(on !== false) }));
 ipcMain.handle('preview:close', () => { previewManager.close(); return { ok: true }; });

@@ -7,9 +7,9 @@
 // Checks:
 //   1. Entry point exists and every local file it references exists.
 //   2. Syntax check on classic scripts (ES modules are covered by the runtime check).
-//   3. `npm run build` IF the project defines one (timeouts + output caps are
-//      damage limiters, NOT a sandbox — the script runs with the user's
-//      privileges; documented limitation).
+//   3. `npm run build` IF the project defines one and the user has approved running
+//      the project's commands (lib/project-scripts.js). NOT a sandbox: the script
+//      runs with the user's privileges; documented limitation.
 //   4. Runtime health: the embedded preview must report ready and emit no
 //      error-level console messages. Reload the preview first so validation
 //      never reads stale state.
@@ -20,7 +20,6 @@
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const vm = require('node:vm');
-const { execFile } = require('node:child_process');
 
 // Console noise that is NOT the game's fault: favicon 404s, and Electron's own
 // dev-mode security banner (emitted for ANY page without a CSP meta, including
@@ -47,14 +46,6 @@ const CHECKLIST = [
 ];
 
 async function exists(p) { return fs.access(p).then(() => true, () => false); }
-
-function runBuild(root, timeoutMs = 120000) {
-  return new Promise((resolve) => {
-    execFile(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['run', 'build'],
-      { cwd: root, timeout: timeoutMs, maxBuffer: 2 * 1024 * 1024 },
-      (err, stdout, stderr) => resolve({ ok: !err, output: `${stdout}\n${stderr}`.slice(-8000), timedOut: Boolean(err && err.killed) }));
-  });
-}
 
 // Waits for preview readiness + error-level console output. Keeps listening for
 // the whole settle window (Q4) so a crash thrown seconds after load — on first
@@ -125,19 +116,29 @@ async function validateProject({ root, preview = null, entryFile = 'index.html',
   checks.push('syntax');
 
   // 3. Build, only if the project defines one. NOTE: this runs AI-generated
-  // scripts with the user's privileges — the timeout/cap are damage limiters,
-  // not a sandbox. runBuildStep=false disables it.
+  // scripts with the user's privileges, so it goes through the approval in
+  // preview.scripts. runBuildStep=false disables it.
   let pkg = null;
   try { pkg = JSON.parse(await fs.readFile(path.join(root, 'package.json'), 'utf8')); } catch {}
   if (runBuildStep && pkg && pkg.scripts && pkg.scripts.build) {
-    emit({ type: 'stage', stage: 'building' });
-    const b = await runBuild(root);
-    if (!b.ok) blocking.push(`Build failed${b.timedOut ? ' (timed out)' : ''}:\n${b.output}`);
-    checks.push('build');
+    const runner = preview && preview.scripts;
+    if (runner) emit({ type: 'stage', stage: 'building' });
+    const b = runner ? await runner.build(root, pkg) : { status: 'skipped', reason: 'running project commands isn’t available' };
+    if (b.status === 'skipped') {
+      warnings.push(`Build not run (${b.reason}); this is NOT proof the project builds`);
+      emit({ type: 'stage', stage: 'testing', detail: `build not run: ${b.reason}` });
+    } else {
+      if (b.status === 'failed') blocking.push(`Build failed:\n${b.output}`);
+      checks.push('build');
+    }
   }
 
   // 4. Runtime health.
-  if (preview) {
+  if (preview && preview.unavailable) {
+    // Not a fault the Developer can fix, so it doesn't block; it isn't proof either.
+    warnings.push(`Runtime check skipped: ${preview.unavailable} This is NOT proof the game runs`);
+    emit({ type: 'stage', stage: 'testing', detail: 'the game couldn’t be run, so it was not tested' });
+  } else if (preview) {
     emit({ type: 'stage', stage: 'testing' });
     if (preview.reload) { try { preview.reload(); } catch {} }
     const r = await waitForPreview(preview, runtime);
@@ -187,4 +188,4 @@ async function listJs(root, dir = root, out = []) {
   return out;
 }
 
-module.exports = { validateProject, waitForPreview, runBuild, listJs };
+module.exports = { validateProject, waitForPreview, listJs };

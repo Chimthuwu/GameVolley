@@ -9,7 +9,8 @@
 // Two project kinds are supported:
 //   - 'file'      -> served by a tiny isolated static HTTP server (avoids file://
 //                   fetch/CORS quirks) and loaded over http://127.0.0.1.
-//   - 'devserver' -> we start the project's dev command and load its URL.
+//   - 'devserver' -> with the user's approval (lib/project-scripts.js) we start the
+//                    project's dev server and load the address it prints.
 //
 // Electron is required lazily so this module can be unit-tested in plain Node with
 // an injected mock for the BrowserWindow/WebContentsView surface.
@@ -18,7 +19,7 @@ const http = require('node:http');
 const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const path = require('node:path');
-const { spawn } = require('node:child_process');
+const { readPackage } = require('./lib/project-scripts.js');
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -76,8 +77,28 @@ function isBlockedPath(relPath) {
 // Height left free above a fullscreen preview for the app's "Exit fullscreen" bar.
 const FULLSCREEN_BAR = 36;
 
+// Does index.html load code that only works through the project's dev server
+// (TypeScript or JSX, or packages imported by name)?
+async function needsDevServer(root) {
+  let html;
+  try { html = await fsp.readFile(path.join(root, 'index.html'), 'utf8'); } catch { return true; }
+  if (/<script[^>]+src=["'][^"']+\.(ts|tsx|jsx)["']/i.test(html)) return true;
+  if (/type=["']importmap["']/i.test(html)) return false;
+  const byName = /^\s*import\s+(?:[^'"]*?\sfrom\s+)?["'](?![./]|https?:)[^"']+["']/m;
+  const code = [...html.matchAll(/<script[^>]+type=["']module["'][^>]*>([\s\S]*?)<\/script>/gi)].map((m) => m[1]);
+  for (const m of html.matchAll(/<script[^>]+src=["'](?!https?:|\/\/)([^"'?#]+)["']/gi)) {
+    const file = safeJoin(root, m[1]);
+    if (file) { try { code.push(await fsp.readFile(file, 'utf8')); } catch { /* reported by the build check */ } }
+  }
+  return code.some((c) => byName.test(c));
+}
+
+const escapeHtml = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+
 class PreviewManager {
-  constructor({ window = null, onEvent = () => {}, electron = null } = {}) {
+  constructor({ window = null, onEvent = () => {}, electron = null, scripts = null } = {}) {
+    this.scripts = scripts;   // runs the project's npm commands, after approval
+    this.unavailable = null;  // why the current game can't be shown, if it can't
     this.window = window;
     this._onEvent = onEvent;
     this._electron = electron; // injected for tests; lazily required in production
@@ -86,7 +107,6 @@ class PreviewManager {
     this.full = false; // fullscreen stays on until it is switched off
     this.staticServer = null;
     this.staticPort = null;
-    this.devProcess = null;
     this._listeners = new Map(); // type -> Set<cb>, used by the validation gate
   }
 
@@ -147,10 +167,12 @@ class PreviewManager {
       this._emit({ type: 'preview:error', message: 'Preview blocked navigation outside the project server.', url });
     });
     wc.on('did-fail-load', (_e, code, desc, url) => {
+      if (this.unavailable) return;
       this._emit({ type: 'preview:fail', code, message: desc, url });
       this._emit({ type: 'preview:error', code, message: desc, url });
     });
-    wc.on('did-finish-load', () => this._emit({ type: 'preview:ready' }));
+    // The page that explains why a game can't be shown is not "the game is ready".
+    wc.on('did-finish-load', () => { if (!this.unavailable) this._emit({ type: 'preview:ready' }); });
     wc.on('console-message', (_e, level, message) => {
       if (level >= 2) this._emit({ type: 'preview:console', level, message });
     });
@@ -244,23 +266,27 @@ class PreviewManager {
     });
   }
 
-  _startDevServer(projectPath, entry) {
-    try {
-      this.devProcess = spawn('npm', ['run', 'dev'], { cwd: projectPath, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
-      this.devProcess.stderr.on('data', (d) => this._emit({ type: 'preview:diagnostic', text: d.toString() }));
-    } catch (e) {
-      this._emit({ type: 'preview:error', message: `Could not start dev server: ${e.message}` });
-    }
-  }
-
   async loadProject({ projectPath, entry }) {
     if (!entry) throw new Error('No entry point to preview.');
     const view = this._ensureView();
+    this.unavailable = null;
     let url;
     if (entry.type === 'devserver') {
-      this._startDevServer(projectPath, entry);
-      url = entry.url;
-    } else {
+      const started = this.scripts
+        ? await this.scripts.startDev(projectPath, await readPackage(projectPath))
+        : { ok: false, reason: 'running project commands isn’t available' };
+      if (started.ok) {
+        url = started.url;
+      } else if (await needsDevServer(projectPath)) {
+        return this._showUnavailable(`This game needs its dev server, which isn’t running: ${started.reason}`);
+      } else {
+        this._emit({ type: 'stage', stage: 'preview', detail: `showing index.html directly, because ${started.reason}` });
+        entry = { type: 'file', path: 'index.html' };
+      }
+    } else if (this.scripts) {
+      this.scripts.stopDev();
+    }
+    if (!url) {
       // Close the previous round's static server so we don't leak one per round.
       if (this.staticServer) { try { this.staticServer.close(); } catch {} this.staticServer = null; this.staticPort = null; }
       const port = await this._startStaticServer(projectPath);
@@ -277,6 +303,15 @@ class PreviewManager {
       this._emit({ type: 'preview:error', message: String(e.message || e) });
     }
     return url;
+  }
+
+  async _showUnavailable(reason) {
+    this.unavailable = reason;
+    this._allowedOrigin = null;
+    this._emit({ type: 'preview:error', message: `${reason}\nPress ⟳ on the preview to try again.` });
+    const page = `<!doctype html><meta charset="utf-8"><body style="margin:0;padding:16px;background:#11131f;color:#e8e8f0;font:13px sans-serif;white-space:pre-wrap">${escapeHtml(reason)}\n\nPress ⟳ above to try again.</body>`;
+    try { await this.view.webContents.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(page)}`); } catch { /* the message is in the log */ }
+    return null;
   }
 
   reload() {
@@ -343,7 +378,7 @@ class PreviewManager {
   }
 
   async close() {
-    if (this.devProcess) { try { this.devProcess.kill('SIGTERM'); } catch {} this.devProcess = null; }
+    if (this.scripts) this.scripts.stopDev();
     if (this.staticServer) { try { this.staticServer.close(); } catch {} this.staticServer = null; this.staticPort = null; }
     if (this.view) {
       try {
@@ -361,3 +396,4 @@ module.exports = PreviewManager;
 module.exports.safeJoin = safeJoin;
 module.exports.isBlockedPath = isBlockedPath;
 module.exports.MIME = MIME;
+module.exports.needsDevServer = needsDevServer;

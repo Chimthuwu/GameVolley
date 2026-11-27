@@ -26,10 +26,10 @@ test('parseFiles extracts path/content pairs and tolerates CRLF', () => {
 const pause = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // Runs a slow stand-in provider and returns what reached the live log.
-async function logOf(chat) {
+async function logOf(chat, waitNoteMs = 60) {
   const { active } = await tmp();
   const agent = new ProviderDevAgent({ provider: { chat }, projectManager: { active }, providerId: 'opencode-go' });
-  agent.waitNoteMs = 60;
+  agent.waitNoteMs = waitNoteMs;
   let log = '';
   await agent.runTask({ prompt: 'build', onEvent: (e) => { if (e.type === 'output') log += e.text; } });
   return { log, later: async () => { const before = log; await pause(200); return log === before; } };
@@ -59,10 +59,12 @@ test('data without text is reported as an active connection, not as thinking', a
 });
 
 test('text that keeps arriving needs no waiting notes', async () => {
+  // Text arrives every 20ms for longer than the 400ms quiet limit. The wide gap
+  // between the two keeps a busy machine from looking quiet.
   const run = await logOf(async ({ onDelta }) => {
-    for (let i = 0; i < 12; i++) { await pause(15); onDelta('x'); }
+    for (let i = 0; i < 40; i++) { await pause(20); onDelta('x'); }
     return { text: SAMPLE };
-  });
+  }, 400);
   assert.doesNotMatch(run.log, /⏳/);
 });
 
