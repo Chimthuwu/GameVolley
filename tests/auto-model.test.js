@@ -96,3 +96,19 @@ test('explicit models always win over the CLI auto-pick', async () => {
   assert.equal(director.provider, 'openrouter');
   assert.equal(director.model, 'paid/flagship', 'the explicit model wins');
 });
+
+test('a provider that keeps the choice is not swapped for a connected CLI', async () => {
+  const providers = makeProviders({ statuses: { openrouter: { connected: true }, anthropic: { connected: true } } });
+  const base = providers.getProvider.bind(providers);
+  providers.getProvider = (id) => {
+    const p = base(id);
+    if (id !== 'openrouter') return p;
+    return { ...p, keepsChoice: true, getModels: async () => [{ id: 'free/first', isFree: true }, { id: 'own-default', autoDefault: true }] };
+  };
+  const chats = await run(providers);
+  const director = chats.find((c) => c.role === 'director');
+  const critic = chats.find((c) => c.role === 'critic');
+  assert.equal(director.provider, 'openrouter', 'Director stays on the chosen provider');
+  assert.equal(director.model, 'own-default', 'its own default beats the first free model');
+  assert.equal(critic.provider, 'openrouter', 'Critic stays too');
+});

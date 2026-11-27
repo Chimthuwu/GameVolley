@@ -152,9 +152,13 @@ class AgentManager {
     const explicit = role === 'director' ? this._directorModel : this._criticModel;
     const fallbackId = role === 'director' ? this._directorId : this._criticId;
     if (explicit) return { providerId: fallbackId, model: explicit };
-    const strong = await this._strongAutoModel();
-    if (strong) return strong;
     const provider = this.providers.getProvider(fallbackId);
+    // A provider marked keepsChoice is never swapped for a connected CLI: picking it
+    // with a blank model box still means "use this provider".
+    if (!(provider && provider.keepsChoice)) {
+      const strong = await this._strongAutoModel();
+      if (strong) return strong;
+    }
     const models = await provider.getModels().catch(() => []);
     return { providerId: fallbackId, model: pickAutoModel(models) };
   }
